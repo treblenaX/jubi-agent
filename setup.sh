@@ -38,5 +38,9 @@ EOF
 fi
 
 # 4. Finalizing
+if [ -z "$BRAVE_API_KEY" ]; then
+    echo -e "${BLUE}  -> [!] Warning: BRAVE_API_KEY is not set. The 'brave-search' skill will not function.${NC}"
+fi
+
 echo -e "${GREEN}✅ Jubi is fully configured and ready for adventure!${NC}"
 echo -e "${FOX}🦊 To begin, launch your OpenClaw session in this directory.${NC}"

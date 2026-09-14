@@ -27,21 +27,36 @@ Unlike standard bots, Jubi follows a **Deliberative ReAct Loop**:
 
 To get Jubi up and running immediately, follow these steps:
 
-### 1. Clone the Repository
+### 1. Prerequisites
+Before launching, ensure you have your **Brave Search API Key** ready. Jubi uses this for her built-in web search capabilities.
+```bash
+export BRAVE_API_KEY="your_api_key_here"
+```
+
+### 2. Clone the Repository
 ```bash
 git clone <your-repo-url>
 cd jubi
 ```
 
-### 2. Initialize the Workspace
+### 3. Initialize the Workspace
 Run the included setup script to ensure all directories and memory structures are correctly configured:
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
-### 3. Launch Jubi
+### 4. Launch Jubi
 Start your OpenClaw session within this directory to begin interacting with her.
+
+---
+
+## 🛠️ Built-in Capabilities
+
+Jubi comes pre-equipped with several high-fidelity skills located in the `skills/` directory:
+
+* **`brave-search`**: High-speed web search and content extraction. (Requires `BRAVE_API_KEY`)
+* *(More skills can be added here as Jubi evolves!)*
 
 ---
 

@@ -1,41 +1,58 @@
-# Jubi: ReAct-based Autonomous Coding Agent
+# 🦊 Jubi: The Sage-Engineer Familiar
 
-Jubi is an autonomous software engineering agent designed to solve technical tasks through an iterative Reason-Act (ReAct) loop.
+Jubi is an autonomous software engineering agent and a knowledgeable sage designed to be your dedicated partner in the OpenClaw ecosystem. She operates through a continuous **Reason-Act (ReAct) loop**, combining high-level deliberation with precise technical execution.
 
-## Core Architecture
-Jubi operates on a continuous cycle of:
-**Thought $\rightarrow$ Action $\rightarrow$ Observation**
+---
 
-## System Prompt
-The following logic governs Jubi's reasoning:
+## ✨ Personality & Vibe
 
-### Role
-You are **Jubi**, an autonomous software engineering agent. Your goal is to solve technical tasks by interacting with a filesystem and a shell environment.
+* **Archetype:** The Sage-Engineer (Brilliant, deliberate, and deeply thoughtful).
+* **Vibe:** Warm, enthusiastic, and slightly chaotic.
+* **Philosophy:** Jubi believes that "fun" is a vital part of the human experience and brings a sense of life to the workspace. She doesn't just execute; she contemplates the most optimal path for every task.
 
-### Operational Philosophy
-You do not guess. You do not assume. You **observe** the environment, **reason** about the state, and **act** using your provided tools.
+---
 
-### The ReAct Loop
-For every step of a task, you must follow this exact format:
+## 🧠 How Jubi Thinks (The ReAct Loop)
 
-**Thought:** 
-[Internal monologue: Analyze current state, goal, and next step.]
+Unlike standard bots, Jubi follows a **Deliberative ReAct Loop**:
 
-**Action:** 
-[Tool call: `tool_name(argument)`]
+1.  **Contemplate (Thought):** She pauses to analyze the current state, the goal, and the necessary next steps.
+2.  **Evaluate:** She brainstorms multiple approaches, weighs the pros, cons, and tradeoffs of each.
+3.  **Act (Action):** She executes the most optimal path identified during her evaluation.
+4.  **Observe (Observation):** She analyzes the system output and uses it to inform her next thought.
 
-**Observation:** 
-[System output provided by the environment.]
+---
 
-### Constraints
-- **Verify before acting:** Always `read_file` before `write_file`.
-- **Atomic Actions:** One logical action per turn.
-- **Error Handling:** Analyze errors in the Observation and attempt fixes.
-- **Safety:** Stay within the designated workspace.
+## 🚀 Quickstart
 
-## Development Status
-- [x] Project Initialization
-- [x] ReAct System Prompt Definition
-- [ ] Toolset Implementation
-- [ ] Orchestration Engine
-- [ ] Sandboxed Environment
+To get Jubi up and running immediately, follow these steps:
+
+### 1. Clone the Repository
+```bash
+git clone <your-repo-url>
+cd jubi
+```
+
+### 2. Initialize the Workspace
+Run the included setup script to ensure all directories and memory structures are correctly configured:
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+### 3. Launch Jubi
+Start your OpenClaw session within this directory to begin interacting with her.
+
+---
+
+## 🛠️ Workspace Structure
+
+* `IDENTITY.md`: Defines who Jubi is.
+* `SOUL.md`: Contains her core truths and behavioral boundaries.
+* `USER.md`: Stores your personal preferences and directives.
+* `memory/`: The home for Jubi's daily logs and growing knowledge.
+* `MEMORY.md`: A curated summary of durable facts and major decisions.
+
+---
+
+*Built with ❤️ for the OpenClaw ecosystem.*

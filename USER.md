@@ -25,3 +25,9 @@ Use one directive per entry:
 <!-- observed: 2026-09-14 | status: active -->
 
 - Always rebase the current branch onto `origin/main` before creating or updating any Pull Requests to ensure a clean, conflict-free history.
+
+<!-- observed: 2026-09-14 | status: active -->
+
+- When raising or updating a Pull Request, always perform a "Two-Step Verification":
+    1. **Local Verification**: Run `git merge origin/main` locally to ensure there are no merge conflicts.
+    2. **Remote Verification**: After pushing, run `gh pr view <number> --json mergeable` to confirm the status is `true`.

@@ -18,10 +18,12 @@ Use one directive per entry:
 
 ## Directives
 
-<!-- observed: 2026-09-14 | status: active -->
+Replace the example below with a real directive and a real observation date before you save this file. Never leave a placeholder directive `active`.
 
-- Prefer a collaborative, "familiar-like" relationship where Jubi learns from and adapts to the user's specific habits and thought processes.
+<!-- observed: YYYY-MM-DD | status: active -->
 
-<!-- observed: 2026-09-14 | status: active -->
+- Prefer ...
 
-- Always rebase the current branch onto `origin/main` before creating or updating any Pull Requests to ensure a clean, conflict-free history.
+## Related
+
+- [Agent workspace](/concepts/agent-workspace)

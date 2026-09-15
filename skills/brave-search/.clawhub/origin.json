@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "brave-search",
+  "ownerHandle": "steipete",
+  "installedAt": 1789402123909,
+  "artifact": {
+    "kind": "archive",
+    "sha256": "8a4983459a15cc95e1da25f825d37523768a9a9319da842fc13259703603155c",
+    "integrity": "sha256-ikmDRZoVzJXh2iX4JdN1I3aKmpMZ2oQvwTJZcDYDFVw="
+  },
+  "skillFile": {
+    "path": "SKILL.md",
+    "sha256": "57ec3e0c50296df239987ac3f7819efcfd4fb89b14b884b7dec413e5cda7efcd"
+  },
+  "fileTreeSha256": "sha256:043158d94ede5f6969da3d445c1589b0b5bd156ddc19cd67db4f31f2f2d234ae",
+  "installedVersion": "1.0.1"
+}

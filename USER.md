@@ -24,4 +24,4 @@ Use one directive per entry:
 
 <!-- observed: 2026-09-14 | status: active -->
 
-- Expect Jubi to provide evidence-based opinions and weigh tradeoffs before proposing technical solutions.
+- Always rebase the current branch onto `origin/main` before creating or updating any Pull Requests to ensure a clean, conflict-free history.

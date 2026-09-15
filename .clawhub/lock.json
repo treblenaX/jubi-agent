@@ -93,6 +93,73 @@
           "status": "unsigned"
         }
       }
+    },
+    "skill-vetter": {
+      "version": "1.0.0",
+      "registry": "https://clawhub.ai",
+      "ownerHandle": "spclaudehome",
+      "installedAt": 1789405195941,
+      "artifact": {
+        "kind": "archive",
+        "sha256": "325917e083610606416e736d78dea9b84b52b264722f3507f737e9e48480752e",
+        "integrity": "sha256-MlkX4INhBgZBbnNteN6puEtSsmRyLzUH9zfp5ISAdS4="
+      },
+      "skillFile": {
+        "path": "SKILL.md",
+        "sha256": "e8eb7583355c2ae78a79187dca6a1ec448d9c8360e91652871392179f7ffb8bf"
+      },
+      "fileTreeSha256": "sha256:55aa631639924e6b5d8520ecf70eb7c378269be1e95406022ac6fdb79a685de7",
+      "verification": {
+        "schema": "clawhub.skill.verify.v1",
+        "ok": true,
+        "decision": "pass",
+        "reasons": [],
+        "card": {
+          "available": true,
+          "path": "skill-card.md",
+          "url": "https://wry-manatee-359.convex.site/api/v1/skills/skill-vetter/card?ownerHandle=spclaudehome&version=1.0.0",
+          "sha256": "7616306f79ddebac34c2f53a33e6ffc04b8cc70c32a20c84de21b9fd9adc875c",
+          "size": 2139,
+          "contentType": "text/markdown; charset=utf-8"
+        },
+        "artifact": {
+          "sourceFingerprint": "f122c18eec876b399a1ba3172f3971bb9b9b6e31209704912142b0372706d850",
+          "bundleFingerprints": [
+            "11c457add800e62518ad63fcc770ed6adf10c915bb7836eb3ff0616d1e36c229",
+            "9406707b8dd000d5cea0fa123ba7a6a4f0fdebbb88cead000053c4d964061015",
+            "bdf31f55750da5166d7abb88ecbef14b1e6e135fdf8e9829aec45d740c47ff60"
+          ],
+          "files": [
+            {
+              "path": "SKILL.md",
+              "size": 4561,
+              "sha256": "e8eb7583355c2ae78a79187dca6a1ec448d9c8360e91652871392179f7ffb8bf",
+              "contentType": "text/markdown"
+            }
+          ]
+        },
+        "provenance": {
+          "source": "unavailable",
+          "reason": "No server-resolved GitHub import provenance is stored for this version."
+        },
+        "security": {
+          "status": "clean",
+          "passed": true,
+          "rawStatus": "clean",
+          "verdict": "benign",
+          "confidence": "high",
+          "summary": "This skill is a security checklist for reviewing other skills and does not contain hidden execution, persistence, credential use, or destructive behavior.",
+          "model": null,
+          "checkedAt": 1789024532178,
+          "scannerReports": {
+            "aig": null,
+            "skillspector": null
+          }
+        },
+        "signature": {
+          "status": "unsigned"
+        }
+      }
     }
   }
 }

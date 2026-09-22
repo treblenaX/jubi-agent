@@ -1,0 +1,35 @@
+# Jubi Multi-Agent Harness - Dependencies
+# Production-ready FastAPI backend with LangGraph and DeepAgents
+
+# Core dependencies
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-multipart>=0.0.12
+
+# LangGraph & DeepAgents
+langgraph>=0.2.0
+deepagents>=0.1.0
+langchain-ollama>=0.1.0
+langchain-core>=1.6.3
+
+# Authentication & Security
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+pyjwt>=2.9.0
+
+# Web tools (for researcher agent)
+httpx>=0.27.0
+beautifulsoup4>=4.12.0
+ddgs>=6.0.0  # DuckDuckGo search
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+playwright>=1.47.0
+
+# Development
+black>=24.4.0
+ruff>=0.6.0
+mypy>=1.11.0

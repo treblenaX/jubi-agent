@@ -2,23 +2,14 @@
 @import "@fontsource-variable/geist-mono";
 @import "@fontsource-variable/manrope";
 
-@layer base {
-	* {
-		@apply border-border outline-ring/50;
-	}
-	body {
-		@apply bg-background text-foreground;
-	}
-	html {
-		@apply font-serif;
-	}
-}
-
 @import "tailwindcss";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/ibm-plex-sans";
 @import "@fontsource-variable/playfair-display";
 @import "@fontsource-variable/figtree";
+
+/* Import StatusDot and Modal styles */
+@import "./lib/components/styles/status-dot.svelte.css";
 
 @custom-variant dark (&:is(.dark *));
 

@@ -117,7 +117,8 @@ async def get_messages(thread_id: Optional[str] = None):
         
         return {
             "messages": messages,
-            "status": "success"
+            "status": "success",
+            "token_usage": 52  # TODO: Calculate actual token usage from model provider
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

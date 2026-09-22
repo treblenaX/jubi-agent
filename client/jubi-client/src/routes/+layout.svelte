@@ -1,7 +1,7 @@
 <script lang="ts">
   import "../app.css"; // Your Tailwind/global stylesheet
   import { ModeWatcher } from "mode-watcher";
-  import SideView from "../lib/components/SideView.svelte";
+  import SideView from "../lib/components/sidebar/SideView.svelte";
 
   let { children } = $props(); // Svelte 5 syntax
 </script>

@@ -1,13 +1,7 @@
 <script lang="ts">
-  import ChatView from '$lib/components/chat/ChatView.svelte';
-
-  let currentRoute = $state<string>('chat');
-  
-  export interface PageProps {
-    props?: { [key: string]: any };
-  }
+  import ChatPage from '$lib/pages/chat/ChatPage.svelte';
 </script>
 
 <div class="flex min-h-screen flex-col">
-  <ChatView />
+  <ChatPage />
 </div>

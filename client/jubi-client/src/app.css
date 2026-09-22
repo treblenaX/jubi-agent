@@ -8,8 +8,9 @@
 @import "@fontsource-variable/playfair-display";
 @import "@fontsource-variable/figtree";
 
-/* Import StatusDot and Modal styles */
-@import "./lib/components/styles/status-dot.svelte.css";
+@source "../src";
+@source '../src/**/*.{html,js,svelte,ts}';
+@source '../src/lib/components/**/*.{svelte,ts}';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -160,4 +161,16 @@
 	--radius-4xl: calc(var(--radius) * 2.6);
 	--font-sans: 'IBM Plex Sans Variable', sans-serif;
 	--font-serif: 'Playfair Display Variable', serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

@@ -11,6 +11,7 @@ This is the main application entry point that:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import httpx
 import sys
 import os
 
@@ -21,6 +22,28 @@ if '/home/ec/.nanobot/workspace/jubi/server' not in sys.path:
 from app.api.v1.chat import router as chat_router
 from app.api.v1.files import router as files_router
 from app.core.config import settings
+
+
+async def _check_model() -> dict:
+    """Best-effort Ollama probe. Never raises; reports model connectivity."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+            resp.raise_for_status()
+            names = [m.get("name", "") for m in resp.json().get("models", [])]
+        if settings.OLLAMA_MODEL in names:
+            return {"connected": True, "name": settings.OLLAMA_MODEL, "error": None}
+        return {
+            "connected": False,
+            "name": settings.OLLAMA_MODEL,
+            "error": f"model not available on Ollama server ({len(names)} models installed)",
+        }
+    except Exception as exc:
+        return {
+            "connected": False,
+            "name": settings.OLLAMA_MODEL,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def create_application() -> FastAPI:
@@ -65,11 +88,11 @@ def create_application() -> FastAPI:
         
         return response
     
-    # Health check endpoint (minimal response for compatibility)
+    # Health check endpoint: API status + model connectivity
     @app.get("/health")
     async def health_check():
         """Health check endpoint."""
-        return {"status": "ok"}
+        return {"status": "ok", "model": await _check_model()}
 
     # Root endpoint with service info
     @app.get("/")

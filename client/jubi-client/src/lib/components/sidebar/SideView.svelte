@@ -10,8 +10,9 @@
 
   let { children } = $props();
 
-  // StatusDot state - init undefined to avoid flash on first render
-  let isConnected: boolean = $state(false);
+  // StatusDot state - init false/null to avoid flash on first render
+  let apiUp: boolean = $state(false);
+  let model: { connected: boolean; name: string; error: string | null } | null = $state(null);
   let showHealthModal: boolean = $state(false);
 
   // Active thread comes from the URL (?t=<thread_id>) — same source as ChatPage
@@ -23,12 +24,26 @@
         method: 'GET',
         cache: 'no-store' // Ensure we don't cache the health check response
       });
-      isConnected = response.ok;
+      apiUp = response.ok;
+      model = response.ok ? ((await response.json()).model ?? null) : null;
     } catch (_error) {
       console.log('API health check failed:', _error?.message || 'Unknown error');
-      isConnected = false;
+      apiUp = false;
+      model = null;
     }
   }
+
+  // green: API + model up · yellow: API up, model down · red: API down
+  const dotClass = $derived(
+    apiUp ? (model?.connected ? 'bg-constructive' : 'bg-warning') : 'bg-destructive'
+  );
+  const dotTitle = $derived(
+    apiUp
+      ? model?.connected
+        ? 'API and model healthy'
+        : 'API up — model not connected'
+      : 'API connection lost'
+  );
 
   async function handleDelete(event: MouseEvent, threadId: string) {
     event.stopPropagation();
@@ -58,10 +73,10 @@
 
         <!-- StatusDot aligned right -->
         <span
-          class={`status-dot ${isConnected ? 'bg-constructive' : 'bg-destructive'} w-2 h-2 rounded-full cursor-pointer`}
+          class={`status-dot ${dotClass} w-2 h-2 rounded-full cursor-pointer`}
           role="button"
           tabindex="0"
-          title={isConnected ? 'API is healthy' : 'API connection lost'}
+          title={dotTitle}
           onclick={() => showHealthModal = true}
           onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -83,6 +98,21 @@
           <div class="modal-body">
             <p>The status dot checks connectivity to:</p>
             <code class="endpoint-code">{API_URL}/health</code>
+            <div class="health-grid">
+              <span class="health-label">API</span>
+              <span class={apiUp ? 'health-ok' : 'health-bad'}>
+                {apiUp ? 'Connected' : 'Unreachable'}
+              </span>
+              <span class="health-label">Model</span>
+              <span class="health-value">{model?.name ?? '—'}</span>
+              <span class="health-label">Model status</span>
+              <span class={!apiUp || !model?.connected ? 'health-bad' : 'health-ok'}>
+                {apiUp ? (model?.connected ? 'Connected' : 'Not connected') : 'Unknown'}
+              </span>
+            </div>
+            {#if apiUp && model && !model.connected}
+              <p class="health-error">{model.error}</p>
+            {/if}
             <p class="modal-note">This endpoint returns HTTP 200 when the backend is running and healthy.</p>
           </div>
         </div>
@@ -135,3 +165,87 @@
     {@render children?.()}
   </main>
 </div>
+
+<style>
+  /* Modal styles (previously lived in a deleted external css file) */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 60%);
+  }
+  .modal-content {
+    width: 22rem;
+    max-width: calc(100vw - 2rem);
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--card);
+    color: var(--card-foreground);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+  .modal-header h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .close-btn {
+    color: var(--muted-foreground);
+  }
+  .close-btn:hover {
+    color: var(--destructive);
+  }
+  .modal-body {
+    display: grid;
+    gap: 0.375rem;
+    font-size: 0.85rem;
+    color: var(--muted-foreground);
+  }
+  .endpoint-code {
+    display: block;
+    padding: 0.25rem 0.5rem;
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--muted);
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    word-break: break-all;
+  }
+  .health-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.25rem 0.75rem;
+    margin-top: 0.25rem;
+  }
+  .health-value {
+    color: var(--foreground);
+  }
+  .health-ok {
+    color: var(--constructive);
+    font-weight: 500;
+  }
+  .health-bad {
+    color: var(--destructive);
+    font-weight: 500;
+  }
+  .health-error {
+    padding: 0.375rem 0.5rem;
+    border: 1px solid color-mix(in oklab, var(--destructive) 35%, transparent);
+    border-radius: calc(var(--radius) - 4px);
+    background: color-mix(in oklab, var(--destructive) 10%, transparent);
+    color: var(--destructive);
+    font-size: 0.75rem;
+    word-break: break-word;
+  }
+  .modal-note {
+    font-size: 0.75rem;
+  }
+</style>

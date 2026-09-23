@@ -19,11 +19,31 @@ def test_root_endpoint(client):
     assert "sandbox" in data
 
 
-def test_health_endpoint(client):
-    """Test health check endpoint."""
+def test_health_endpoint(client, monkeypatch):
+    """Test health check endpoint returns API + model status."""
+    async def fake_check_model():
+        return {"connected": True, "name": "test-model", "error": None}
+
+    monkeypatch.setattr("app.main._check_model", fake_check_model)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "model": {"connected": True, "name": "test-model", "error": None},
+    }
+
+
+def test_check_model_unreachable(monkeypatch):
+    """Model probe reports connected=False with error when Ollama is down."""
+    import asyncio
+    from app.main import _check_model
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "OLLAMA_BASE_URL", "http://127.0.0.1:1")
+    result = asyncio.run(_check_model())
+    assert result["connected"] is False
+    assert result["name"] == settings.OLLAMA_MODEL
+    assert result["error"]  # contains exception type
 
 
 def test_threads_list_create_delete(client):

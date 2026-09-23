@@ -52,6 +52,29 @@ def _serialize_message(m: Any) -> dict:
     return out
 
 
+def _context_usage(config: dict) -> Optional[dict]:
+    """Orchestrator context usage: tokens used vs OLLAMA_NUM_CTX.
+
+    Prefers the last AI message's real usage_metadata.input_tokens (prompt size
+    of the final LLM call ≈ full context); falls back to a chars/4 estimate.
+    """
+    try:
+        state = agent.get_state(config=config)
+        msgs = (state.values or {}).get("messages", []) if state else []
+        if not msgs:
+            return None
+        last_ai = next(
+            (m for m in reversed(msgs) if getattr(m, "type", "") == "ai"), None
+        )
+        um = getattr(last_ai, "usage_metadata", None) if last_ai else None
+        used = (um or {}).get("input_tokens")
+        if not used:
+            used = sum(len(str(getattr(m, "content", ""))) for m in msgs) // 4
+        return {"used": used, "limit": settings.OLLAMA_NUM_CTX}
+    except Exception:
+        return None
+
+
 def _serialize_update(update: dict) -> dict:
     """Convert a LangGraph stream update ({node: state_delta}) to JSON-safe."""
     out = {}
@@ -144,6 +167,9 @@ async def _stream_chat(
                 stream_mode="updates",
             ):
                 yield f"data: {json.dumps(_serialize_update(update))}\n\n"
+            ctx = _context_usage(config)
+            if ctx:
+                yield f"data: {json.dumps({'context': ctx})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -188,7 +214,8 @@ async def get_messages(thread_id: Optional[str] = None):
 
     return {
         "messages": messages,
-        "status": "success"
+        "status": "success",
+        "context": _context_usage(config),
     }
 
 

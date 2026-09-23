@@ -13,7 +13,7 @@ export interface ChatMessage {
 }
 
 export interface StreamEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'error' | 'done';
+  type: 'message' | 'tool_call' | 'tool_result' | 'error' | 'done' | 'context';
   node?: string;           // LangGraph node name (orchestrator, coder, researcher)
   content?: string;        // Assistant message chunk
   tool_name?: string;      // Tool being called
@@ -21,12 +21,14 @@ export interface StreamEvent {
   tool_result?: string;    // Tool output
   error?: string;
   done?: boolean;
+  contextUsed?: number;    // Orchestrator context tokens used
+  contextLimit?: number;   // Orchestrator context window (num_ctx)
 }
 
 export interface ChatMessageResponse {
   messages: ChatMessage[];
   status: string;
-  token_usage?: number;    // Token usage percentage (0-100)
+  context?: { used: number; limit: number } | null;
 }
 
 export interface ChatOptions {
@@ -43,6 +45,15 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2024';
  * Normalize LangGraph stream updates to our StreamEvent format
  */
 function normalizeEvent(update: Record<string, any>): StreamEvent {
+  // Context usage event (emitted after the stream finishes)
+  if (update.context) {
+    return {
+      type: 'context',
+      contextUsed: update.context.used,
+      contextLimit: update.context.limit
+    };
+  }
+
   const event: StreamEvent = { type: 'message', content: '' };
   
   // Handle LangGraph update structure
@@ -91,22 +102,29 @@ function normalizeEvent(update: Record<string, any>): StreamEvent {
 /**
  * Fetch messages history for a thread (used for initial load / thread switch)
  */
-export async function fetchHistory(threadId: string): Promise<ChatMessage[]> {
+export async function fetchHistory(
+  threadId: string
+): Promise<{ messages: ChatMessage[]; contextUsed?: number; contextLimit?: number }> {
   try {
     const res = await fetch(`${BASE_URL}/chat?thread_id=${encodeURIComponent(threadId)}`, {
       headers: { 'Accept': 'application/json' }
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { messages: [] };
     const data: ChatMessageResponse = await res.json();
-    return (data.messages || []).map((m: any) => ({
+    const messages = (data.messages || []).map((m: any) => ({
       id: m.id || crypto.randomUUID(),
       role: (m.role || (m.type === 'human' ? 'user' : 'assistant')) as 'user' | 'assistant',
       content: m.content || '',
       timestamp: new Date(m.timestamp || Date.now())
     }));
+    return {
+      messages,
+      contextUsed: data.context?.used,
+      contextLimit: data.context?.limit
+    };
   } catch (err) {
     console.warn('Failed to load history:', err);
-    return [];
+    return { messages: [] };
   }
 }
 

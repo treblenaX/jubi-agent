@@ -3,13 +3,7 @@
   let chatMode: "auto" | "agent" | "manual" = $state("auto");
 </script>
 
-<div class="flex items-center justify-between">
-  <!-- Jubi Logo/Title -->
-  <h1 class="text-xl font-bold flex items-center gap-2">
-    <span>Jubi</span>
-    <span class="text-sm font-normal text-purple-200">Multi-Agent Harness</span>
-  </h1>
-
+<div class="flex items-center justify-end">
   <!-- Mode selector for chat -->
   <div class="flex items-center gap-2">
     <select

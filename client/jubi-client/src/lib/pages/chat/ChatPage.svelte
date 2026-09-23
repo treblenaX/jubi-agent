@@ -16,7 +16,6 @@
 
 	// Chat state (single source of truth for the page)
 	let messages = $state<ChatMessage[]>([]);
-	let chatMode = $state<'auto' | 'agent' | 'manual'>('auto');
 	let isStreaming = $state(false);
 	let contextUsed = $state<number | null>(null);
 	let contextLimit = $state(16384);
@@ -100,7 +99,7 @@
 </script>
 <div class="flex h-full w-full flex-col overflow-hidden">
 	<div class="chat-header shrink-0 text-white p-4 shadow-lg z-10">
-  		<ChatHeader chatMode={chatMode} />
+  		<ChatHeader />
   	</div>
 	<div class="chat-messages relative min-h-0 flex-1 bg-background">
   		<MessageContainer {messages} />

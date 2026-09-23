@@ -123,3 +123,7 @@ temp/
 *~
 
 *.d.ts
+
+# Local-only docs (design plans etc.) — never commit
+/docs/
+/DESIGN_PLAN.md

@@ -38,10 +38,10 @@
       <!-- Welcome message -->
       <Message.Root>
         <Message.Content>
-          <Message.Header>Olivia</Message.Header>
+          <Message.Header>Jubi</Message.Header>
           <Bubble.Root variant="muted">
             <Bubble.Content>
-              Hello! I'm Olivia, your Jubi assistant. How can I help you today?
+              Hello! I'm Jubi, your assistant. How can I help you today?
             </Bubble.Content>
           </Bubble.Root>
         </Message.Content>
@@ -51,7 +51,7 @@
       {#each messages as message (message.id)}
         <Message.Root align={message.role === 'user' ? 'end' : 'start'}>
           <Message.Content>
-            <Message.Header>{message.role === 'user' ? 'You' : 'Olivia'}</Message.Header>
+            <Message.Header>{message.role === 'user' ? 'You' : 'Jubi'}</Message.Header>
             <Bubble.Root variant={message.role === 'user' ? '' : 'muted'}>
               <Bubble.Content>
                 {#if message.role === 'assistant' && message.content === ''}
@@ -64,9 +64,9 @@
             </Bubble.Root>
             {#if message.timestamp}
               <Message.Footer>
-                <div>
-                  Read <span class="font-normal">{message.timestamp.toLocaleTimeString()}</span>
-                </div>
+                {message.timestamp.toDateString() === new Date().toDateString()
+                  ? message.timestamp.toLocaleTimeString()
+                  : message.timestamp.toLocaleString()}
               </Message.Footer>
             {/if}
           </Message.Content>

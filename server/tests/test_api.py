@@ -108,6 +108,36 @@ def test_chat_invoke(client, sample_message):
 
 # Authentication tests removed - auth endpoints not implemented yet
 
+def test_message_stamps_roundtrip(client):
+    """Message stamps persist (first wins) and serialize into messages."""
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+    from app.api.v1.chat import (
+        _META_DB, _stamp_messages, _get_message_stamps, _serialize_message,
+    )
+
+    tid = f"stamp-test-{uuid.uuid4()}"
+    _stamp_messages(tid, [{"id": "m-1", "role": "user", "content": "hi"}])
+    stamps = _get_message_stamps(tid)
+    assert stamps.get("m-1")  # ISO timestamp string
+
+    # First stamp wins (INSERT OR IGNORE)
+    _stamp_messages(tid, [{"id": "m-1", "role": "user", "content": "hi"}])
+    assert _get_message_stamps(tid)["m-1"] == stamps["m-1"]
+
+    # Serializer includes the timestamp when provided
+    msg = SimpleNamespace(type="human", content="x", id="m-1", tool_calls=None)
+    out = _serialize_message(msg, timestamp=stamps["m-1"])
+    assert out["timestamp"] == stamps["m-1"]
+
+    # Cleanup
+    conn = sqlite3.connect(_META_DB)
+    with conn:
+        conn.execute("DELETE FROM message_stamps WHERE thread_id = ?", (tid,))
+    conn.close()
+
+
 def test_cors_headers(client):
     """Test CORS headers are present."""
     response = client.get("/health", headers={"Origin": "http://localhost:5173"})

@@ -44,6 +44,14 @@ def _meta_conn():
                 updated_at TEXT NOT NULL
             )"""
         )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS message_stamps (
+                thread_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (thread_id, message_id)
+            )"""
+        )
         with conn:
             yield conn
     finally:
@@ -77,7 +85,35 @@ def _upsert_thread_meta(thread_id: str, title: Optional[str] = None) -> None:
             )
 
 
-def _serialize_message(m: Any) -> dict:
+def _stamp_messages(thread_id: str, messages: list) -> None:
+    """Record server time for message ids (first stamp wins).
+
+    LangChain messages carry no timestamps, so we persist one per id as
+    messages are produced — this is what makes history timestamps real.
+    """
+    ids = [m.get("id") for m in messages if isinstance(m, dict) and m.get("id")]
+    if not ids:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with _meta_conn() as conn:
+        conn.executemany(
+            """INSERT OR IGNORE INTO message_stamps (thread_id, message_id, created_at)
+               VALUES (?, ?, ?)""",
+            [(thread_id, mid, now) for mid in ids],
+        )
+
+
+def _get_message_stamps(thread_id: str) -> dict:
+    """Return {message_id: created_at} for a thread."""
+    with _meta_conn() as conn:
+        rows = conn.execute(
+            "SELECT message_id, created_at FROM message_stamps WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def _serialize_message(m: Any, timestamp: Optional[str] = None) -> dict:
     """Convert a LangChain message (or dict) to a JSON-safe dict."""
     if isinstance(m, dict):
         return m
@@ -97,6 +133,8 @@ def _serialize_message(m: Any) -> dict:
         "content": content,
         "id": getattr(m, "id", None) or str(uuid.uuid4()),
     }
+    if timestamp:
+        out["timestamp"] = timestamp
     tool_calls = getattr(m, "tool_calls", None)
     if tool_calls:
         out["tool_calls"] = [
@@ -209,6 +247,14 @@ async def _stream_chat(
     except Exception:
         pass
 
+    # Pre-assign the user message id so it can be stamped with the real send
+    # time (LangChain would otherwise generate one mid-stream).
+    user_msg = {"role": "user", "content": content, "id": f"user-{uuid.uuid4()}"}
+    try:
+        _stamp_messages(thread_id, [user_msg])
+    except Exception:
+        pass
+
     config = {
         "configurable": {
             "thread_id": thread_id,
@@ -223,11 +269,29 @@ async def _stream_chat(
     def stream_generator():
         try:
             for update in agent.stream(
-                {"messages": [{"role": "user", "content": content}]},
+                {"messages": [user_msg]},
                 config=config,
                 stream_mode="updates",
             ):
-                yield f"data: {json.dumps(_serialize_update(update))}\n\n"
+                payload = _serialize_update(update)
+                # Stamp assistant messages as they are emitted (best-effort)
+                try:
+                    _stamp_messages(thread_id, [
+                        m for p in payload.values() if isinstance(p, dict)
+                        for m in p.get("messages", [])
+                    ])
+                except Exception:
+                    pass
+                yield f"data: {json.dumps(payload)}\n\n"
+            # Sweep: stamp anything updates missed (e.g. the input user message)
+            try:
+                state = agent.get_state(config=config)
+                if state and state.values:
+                    _stamp_messages(thread_id, [
+                        _serialize_message(m) for m in state.values.get("messages", [])
+                    ])
+            except Exception:
+                pass
             ctx = _context_usage(config)
             if ctx:
                 yield f"data: {json.dumps({'context': ctx})}\n\n"
@@ -271,7 +335,11 @@ async def get_messages(thread_id: Optional[str] = None):
             "status": "no_messages"
         }
 
-    messages = [_serialize_message(m) for m in state.values.get("messages", [])]
+    stamps = _get_message_stamps(config["configurable"]["thread_id"])
+    messages = [
+        _serialize_message(m, stamps.get(getattr(m, "id", None)))
+        for m in state.values.get("messages", [])
+    ]
 
     return {
         "messages": messages,

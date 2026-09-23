@@ -89,6 +89,8 @@
 				updateMessage(assistantId, `Error: ${error.message}`);
 			},
 			onComplete: (id: string) => {
+				const msg = messages.find((m) => m.id === assistantId);
+				if (msg) msg.timestamp = new Date(); // real finish time
 				isStreaming = false;
 				streamingMsgId = null;
 				sessions.refresh(); // sidebar picks up new/updated session

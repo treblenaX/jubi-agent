@@ -9,7 +9,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: Date;
+  timestamp?: Date;
 }
 
 export interface StreamEvent {
@@ -115,7 +115,8 @@ export async function fetchHistory(
       id: m.id || crypto.randomUUID(),
       role: (m.role || (m.type === 'human' ? 'user' : 'assistant')) as 'user' | 'assistant',
       content: m.content || '',
-      timestamp: new Date(m.timestamp || Date.now())
+      // Server-provided timestamp (message_stamps table); undefined if absent
+      timestamp: m.timestamp ? new Date(m.timestamp) : undefined
     }));
     return {
       messages,

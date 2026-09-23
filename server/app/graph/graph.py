@@ -252,8 +252,12 @@ from app.graph.tools.search_tool import grep_project
 
 
 # Module-level export for `langgraph dev` — langgraph.json points at this.
-# NO checkpointer here: the server owns persistence and threads (§9.3).
-agent = build_agent()
+# Server persistence: SQLite checkpointer keyed by thread_id (§9.3).
+import sqlite3
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+_ckpt_conn = sqlite3.connect("harness.db", check_same_thread=False)
+agent = build_agent(checkpointer=SqliteSaver(_ckpt_conn))
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     OLLAMA_TEMPERATURE: float = 0.0
     OLLAMA_NUM_CTX: int = 16384
     OLLAMA_KEEP_ALIVE: str = "5m"
-    OLLAMA_BASE_URL: str = "http://192.168.1.5:11434"
+    OLLAMA_BASE_URL: str = "http://192.168.1.6:11434"
     
     # Sandbox Configuration
     SANDBOX_ROOT: str = "/tmp/jubi-sandbox/"

@@ -12,7 +12,7 @@ echo "🚀 Starting Jubi Agent..."
 
 # Start server first (needs to be ready before client connects)
 cd "$SERVER_DIR"
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 18789 --reload &
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 2024 --reload &
 SERVER_PID=$!
 echo "Server started (PID: $SERVER_PID)"
 
@@ -28,7 +28,7 @@ echo "Client started (PID: $CLIENT_PID)"
 echo ""
 echo "✅ Jubi Agent is running!"
 echo "   Client: http://localhost:5173/"
-echo "   API:    http://localhost:18789"
+echo "   API:    http://localhost:2024"
 echo ""
 echo "To stop: kill $SERVER_PID $CLIENT_PID"
 

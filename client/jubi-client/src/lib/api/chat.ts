@@ -37,7 +37,7 @@ export interface ChatOptions {
 }
 
 // Base API URL - server routes at /chat (no /api/v1 prefix)
-const BASE_URL = import.meta.env.VITE_API_URL || '/';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2024';
 
 /**
  * Normalize LangGraph stream updates to our StreamEvent format
@@ -89,6 +89,28 @@ function normalizeEvent(update: Record<string, any>): StreamEvent {
 }
 
 /**
+ * Fetch messages history for a thread (used for initial load / thread switch)
+ */
+export async function fetchHistory(threadId: string): Promise<ChatMessage[]> {
+  try {
+    const res = await fetch(`${BASE_URL}/chat?thread_id=${encodeURIComponent(threadId)}`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!res.ok) return [];
+    const data: ChatMessageResponse = await res.json();
+    return (data.messages || []).map((m: any) => ({
+      id: m.id || crypto.randomUUID(),
+      role: (m.role || (m.type === 'human' ? 'user' : 'assistant')) as 'user' | 'assistant',
+      content: m.content || '',
+      timestamp: new Date(m.timestamp || Date.now())
+    }));
+  } catch (err) {
+    console.warn('Failed to load history:', err);
+    return [];
+  }
+}
+
+/**
  * Send a message and stream the response from orchestrator agent
  */
 export async function sendMessage(
@@ -119,40 +141,15 @@ export async function sendMessage(
     }
   }
   
-  // Fetch messages history before streaming
-  try {
-    const historyRes = await fetch(`${BASE_URL}/chat?thread_id=${encodeURIComponent(threadId)}`, {
-      headers: { 'Accept': 'application/json' }
-    });
-
-    if (historyRes.ok) {
-      const data: ChatMessageResponse = await historyRes.json();
-      // Convert to ChatMessage[] for UI
-      const messages: ChatMessage[] = (data.messages || []).map((m: any) => ({
-        id: m.id || crypto.randomUUID(),
-        role: m.role as 'user' | 'assistant',
-        content: m.content || '',
-        timestamp: new Date(m.timestamp || Date.now())
-      }));
-
-      // Update parent UI via event or callback if available
-      window.dispatchEvent(new CustomEvent('chat:messages-updated', {
-        detail: { messages, tokenUsage: data.token_usage }
-      }));
-    }
-  } catch (err) {
-    console.warn('Failed to load history:', err);
-  }
-  
-   // Stream response from orchestrator (GET with query params)
-   const response = await fetch(`${BASE_URL}/chat?content=${encodeURIComponent(content)}&thread_id=${encodeURIComponent(threadId)}`, {
-     method: 'GET',
+  // Stream response from orchestrator (POST with JSON body)
+   const response = await fetch(`${BASE_URL}/chat`, {
+     method: 'POST',
      headers: {
+       'Content-Type': 'application/json',
        'Accept': 'text/event-stream'
      },
+     body: JSON.stringify({ content, thread_id: threadId }),
      signal: abortController.signal,
-     // Disable duplex for SSE (browser handles it)
-     duplex: 'half' as const
    });
   
   if (!response.ok || !response.body) {
@@ -166,29 +163,30 @@ export async function sendMessage(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  
+
   try {
     while (true) {
       const { done, value } = await reader.read();
-      
+
       if (done) break;
       
       buffer += decoder.decode(value, { stream: true });
       
-      // Parse SSE events
-      const lines = buffer.split('\n').filter(line => line.trim());
-      buffer = '';  // Reset buffer after parsing
+      // Parse SSE events - handle partial lines
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
       
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
           try {
-            const event = normalizeEvent(JSON.parse(line.slice(6)));
+            const event = normalizeEvent(JSON.parse(trimmed.slice(6)));
             options.onEvent(event);
             
             // Check for completion
             if (event.done || event.type === 'error') {
               options.onComplete(threadId);
-              break;
+              return;
             }
           } catch (parseErr) {
             console.warn('Failed to parse SSE event:', parseErr);
@@ -201,6 +199,7 @@ export async function sendMessage(
         break;
       }
     }
+    options.onComplete(threadId);
   } finally {
     // Cleanup
     reader.releaseLock();

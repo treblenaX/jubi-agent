@@ -1,36 +1,25 @@
 <script lang="ts">
-  import { Root, Textarea, Addon, Button, Text } from "$lib/components/ui/input-group";
-  import Separator from "$lib/components/ui/separator/separator.svelte";
+  import { Root, Textarea, Addon, Button } from "$lib/components/ui/input-group";
   import { ArrowUp02Icon } from "@hugeicons/core-free-icons";
   import { HugeiconsIcon } from "@hugeicons/svelte";
 
   // Svelte 5 runes mode - use $props()
   interface Props {
-    mode?: "auto" | "agent" | "manual";
-    tokenUsage?: number;
+    tokenUsage?: number;   // Context used, percent (0-100); undefined = unknown
     disabled?: boolean;
     placeholder?: string;
     onSend?: (content: string) => void;
-    onModeChange?: (mode: "auto" | "agent" | "manual") => void;
   }
 
   const {
-    mode = "auto",
-    tokenUsage = 52,
+    tokenUsage,
     disabled = false,
     placeholder = "Ask, Search or Chat...",
-    onSend = () => {},
-    onModeChange = () => {}
+    onSend = () => {}
   } = $props<Props>();
 
   let value = $state<string>("");
   let isComposing = $state(false);
-
-  const modes = [
-    { value: "auto", label: "Auto" },
-    { value: "agent", label: "Agent" },
-    { value: "manual", label: "Manual" }
-  ] as const;
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !isComposing) {
@@ -57,12 +46,16 @@
     onSend(content);
   }
 
-  function handleModeSelect(m: typeof modes[0]) {
-    onModeChange(m.value);
-  }
+  // Context bar: fill = used, hover tooltip = left. Color escalates near the limit.
+  const pct = $derived(
+    tokenUsage === undefined ? null : Math.min(100, Math.max(0, Math.round(tokenUsage)))
+  );
+  const barColor = $derived(
+    pct === null ? "" : pct > 85 ? "bg-destructive" : pct > 65 ? "bg-amber-500" : "bg-primary"
+  );
 </script>
 
-<Root class="w-full">
+<Root class="w-full border-transparent">
   <Textarea
     bind:value
     {placeholder}
@@ -75,60 +68,28 @@
   />
 
   <Addon align="block-end" class="w-full items-end gap-2">
-    <!-- Mode selector dropdown (native HTML) -->
-    <div class="relative inline-block w-full max-w-[120px]">
-      <button
-        id="mode-trigger"
-        type="button"
-        class="px-3 py-1 text-sm font-medium rounded-md border bg-background hover:bg-accent hover:text-accent-foreground w-full text-left"
-          onclick={() => {
-            const trigger = document.getElementById('mode-trigger') as HTMLButtonElement;
-            const content = document.getElementById('mode-content') as HTMLElement;
-            const isOpen = content?.classList.contains('hidden') ?? true;
-
-            // Close all open dropdowns
-            document.querySelectorAll('[id^="mode-trigger"]').forEach(t => {
-              t.classList.add('hidden');
-              const parent = t.parentElement as HTMLElement;
-              if (parent) parent.classList.remove('flex');
-            });
-
-            // Toggle current dropdown
-            trigger.classList.toggle('hidden', !isOpen);
-            content?.classList.toggle('hidden', isOpen);
-          }}
-        disabled={disabled}
-      >
-        {modes.find(m => m.value === mode)?.label}
-      </button>
-
-      <div
-        id="mode-content"
-        class="absolute left-0 right-0 mt-1 bounded-md shadow-lg hidden p-1 z-50 min-w-[120px]"
-      >
-        {#each modes as m (m.value)}
-          <button
-            type="button"
-            onclick={() => handleModeSelect(m)}
-            class="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
-            disabled={disabled}
-          >
-            {m.label}
-          </button>
-        {/each}
+    <!-- Context usage indicator: % shown on hover -->
+    {#if pct !== null}
+      <div class="group relative ms-auto flex items-center">
+        <div class="h-1 w-40 overflow-hidden rounded-full bg-muted">
+          <div
+            class="h-full rounded-full transition-all duration-500 {barColor}"
+            style="width: {pct}%"
+          ></div>
+        </div>
+        <span
+          class="pointer-events-none absolute right-0 bottom-full z-50 mb-2 hidden whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs tabular-nums text-popover-foreground shadow-md group-hover:block"
+        >
+          {100 - pct}% left
+        </span>
       </div>
-    </div>
-
-    <!-- Token usage indicator -->
-    <Text class="ms-auto text-xs">{tokenUsage}% used</Text>
-
-    <Separator orientation="vertical" class="!h-4 mx-2" />
+    {/if}
 
     <!-- Send button -->
     <Button
       variant="default"
       size="icon"
-      class="rounded-full"
+      class="ms-auto rounded-full"
       disabled={disabled || !value.trim()}
       onclick={send}
     >
@@ -139,7 +100,21 @@
 </Root>
 
 <style>
-  :global(body.click-close-dropdown) [id^="mode-content"] {
-    display: none;
+  /* No border ever: base + focus + control focus-visible ring */
+  :global([data-slot="input-group"]) {
+    border-color: transparent;
+  }
+  :global([data-slot="input-group"]:focus-within) {
+    border-color: transparent;
+    box-shadow: none;
+    background-color: color-mix(in oklab, #7c4dff 7%, transparent);
+  }
+  :global([data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible)) {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  :global([data-slot="input-group"] [data-slot="input-group-control"]) {
+    outline: none !important;
+    box-shadow: none !important;
   }
 </style>

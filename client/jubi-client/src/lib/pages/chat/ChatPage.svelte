@@ -16,7 +16,8 @@
 	let chatMode = $state<'auto' | 'agent' | 'manual'>('auto');
 	let threadId = $state<string>('');
 	let isStreaming = $state(false);
-	let tokenUsage = $state(52);
+	let contextUsed = $state<number | null>(null);
+	let contextLimit = $state(16384);
 	let streamingMsgId = $state<string | null>(null);
 	let pendingContent = '';
 
@@ -24,8 +25,10 @@
 	$effect(() => {
 		if (threadId) return;
 		threadId = getOrCreateThreadId();
-		fetchHistory(threadId).then((history) => {
+		fetchHistory(threadId).then(({ messages: history, contextUsed: used, contextLimit: limit }) => {
 			if (history.length > 0) messages = history;
+			if (typeof used === 'number') contextUsed = used;
+			if (typeof limit === 'number') contextLimit = limit;
 		});
 	});
 
@@ -52,6 +55,9 @@
 				if (event.type === 'message' && event.content) {
 					pendingContent += event.content;
 					updateMessage(assistantId, pendingContent);
+				} else if (event.type === 'context') {
+					if (typeof event.contextUsed === 'number') contextUsed = event.contextUsed;
+					if (typeof event.contextLimit === 'number') contextLimit = event.contextLimit;
 				} else if (event.type === 'error' && event.error) {
 					updateMessage(assistantId, `Error: ${event.error}`);
 				}
@@ -60,10 +66,9 @@
 				console.error('Chat error:', error);
 				updateMessage(assistantId, `Error: ${error.message}`);
 			},
-			onComplete: (id: string, usage?: number) => {
+			onComplete: (id: string) => {
 				isStreaming = false;
 				streamingMsgId = null;
-				if (typeof usage === 'number') tokenUsage = usage;
 			}
 		});
 	}
@@ -79,9 +84,7 @@
   		<ChatFooter
 			onSend={handleSendMessage}
 			disabled={isStreaming}
-			tokenUsage={tokenUsage}
-			mode={chatMode}
-			onModeChange={(m) => (chatMode = m)}
+			tokenUsage={contextUsed === null ? undefined : contextUsed / contextLimit * 100}
 		/>
 	</div>
 </div>

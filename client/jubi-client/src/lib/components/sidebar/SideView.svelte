@@ -1,21 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import { HugeiconsIcon } from "@hugeicons/svelte";
-  import {
-    Home01Icon,
-    Chart01Icon,
-    UserGroupIcon,
-    Settings02Icon,
-    HelpCircleIcon,
-  } from "@hugeicons/core-free-icons";
-	import { API_URL } from "$lib/constants";
+  import { PlusSignIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
+  import { API_URL } from "$lib/constants";
+  import { sessions } from "$lib/stores/sessions.svelte";
+  import { deleteThread } from "$lib/api/chat";
 
-  let { children, navigationItems = [] } = $props();
+  let { children } = $props();
 
   // StatusDot state - init undefined to avoid flash on first render
   let isConnected: boolean = $state(false);
   let showHealthModal: boolean = $state(false);
-  let tokenUsage = $state(52);
+
+  // Active thread comes from the URL (?t=<thread_id>) — same source as ChatPage
+  const activeThreadId = $derived(page.url.searchParams.get('t') ?? '');
 
   async function checkConnection() {
     try {
@@ -30,8 +30,20 @@
     }
   }
 
+  async function handleDelete(event: MouseEvent, threadId: string) {
+    event.stopPropagation();
+    try {
+      await deleteThread(threadId); // server: checkpoints + metadata
+      sessions.remove(threadId);
+      if (threadId === activeThreadId) goto('/');
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
+  }
+
   onMount(() => {
     checkConnection();
+    sessions.refresh();
     const interval = setInterval(checkConnection, 10000);
     return () => clearInterval(interval);
   });
@@ -77,92 +89,45 @@
       </div>
     {/if}
 
-    <!-- Main Navigation Items -->
+    <!-- New Chat -->
+    <div class="px-4 pt-4">
+      <button
+        class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        onclick={() => goto('/')}
+      >
+        <HugeiconsIcon icon={PlusSignIcon} size={20} strokeWidth={1.5} class="h-5 w-5" />
+        <span>New Chat</span>
+      </button>
+    </div>
+
+    <!-- Session List -->
     <nav class="flex-1 space-y-1 px-4 py-4 overflow-y-auto">
-      {#each navigationItems as item}
-        <a
-          href={item.href}
-          class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      {#each sessions.list as session (session.thread_id)}
+        <div
+          class={`group relative flex items-center rounded-md text-sm transition-colors ${
+            session.thread_id === activeThreadId
+              ? 'bg-accent text-accent-foreground'
+              : 'text-muted-foreground hover:bg-accent/50'
+          }`}
         >
-          <!-- Target internal icon structures with uniform formatting classes -->
-          <HugeiconsIcon
-            icon={item.iconRaw || Home01Icon}
-            size={20}
-            strokeWidth={1.5}
-            class="h-5 w-5 flex items-center justify-center"
-          />
-          <span>{item.name}</span>
-        </a>
+          <button
+            class="flex-1 truncate px-3 py-2 text-left font-medium"
+            title={session.title || 'New chat'}
+            onclick={() => goto(`/?t=${session.thread_id}`)}
+          >
+            {session.title || 'New chat'}
+          </button>
+          <button
+            class="absolute right-1.5 rounded p-1 opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+            aria-label={`Delete session: ${session.title || 'New chat'}`}
+            onclick={(e) => handleDelete(e, session.thread_id)}
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.5} />
+          </button>
+        </div>
+      {:else}
+        <p class="px-3 py-2 text-xs text-muted-foreground">No sessions yet</p>
       {/each}
-
-      <!-- Additional static navigation items -->
-      <a
-        href="/dashboard"
-        class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-      >
-        <HugeiconsIcon
-          icon={Home01Icon}
-          size={20}
-          strokeWidth={1.5}
-          class="h-5 w-5 flex items-center justify-center"
-        />
-        <span>Dashboard</span>
-      </a>
-
-      <a
-        href="/analytics"
-        class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-      >
-        <HugeiconsIcon
-          icon={Chart01Icon}
-          size={20}
-          strokeWidth={1.5}
-          class="h-5 w-5 flex items-center justify-center"
-        />
-        <span>Analytics</span>
-      </a>
-
-      <a
-        href="/users"
-        class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-      >
-        <HugeiconsIcon
-          icon={UserGroupIcon}
-          size={20}
-          strokeWidth={1.5}
-          class="h-5 w-5 flex items-center justify-center"
-        />
-        <span>Users</span>
-      </a>
-
-      <a
-        href="/settings"
-        class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-      >
-        <HugeiconsIcon
-          icon={Settings02Icon}
-          size={20}
-          strokeWidth={1.5}
-          class="h-5 w-5 flex items-center justify-center"
-        />
-        <span>Settings</span>
-      </a>
-
-      <!-- Bottom Sidebar Footer (Profile / Support) -->
-      <div class="border-t border-border p-4">
-        <a
-          href="/support"
-          class="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          <HugeiconsIcon
-            icon={HelpCircleIcon}
-            size={20}
-            strokeWidth={1.5}
-            class="h-5 w-5 flex items-center justify-center"
-          />
-          <span>Help & Support</span>
-        </a>
-      </div>
     </nav>
   </aside>
   <!-- Primary Page View Content Area -->

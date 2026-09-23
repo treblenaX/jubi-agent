@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
 	import ChatHeader from "./ChatHeader.svelte";
 	import MessageContainer from "../../components/chat/MessageContainer.svelte";
 	import ChatFooter from "./ChatFooter.svelte";
-	import { sendMessage, fetchHistory, getOrCreateThreadId } from "$lib/api/chat";
+	import { sendMessage, fetchHistory, createThread } from "$lib/api/chat";
+	import { sessions } from "$lib/stores/sessions.svelte";
 
 	interface ChatMessage {
 		id: string;
@@ -14,18 +17,29 @@
 	// Chat state (single source of truth for the page)
 	let messages = $state<ChatMessage[]>([]);
 	let chatMode = $state<'auto' | 'agent' | 'manual'>('auto');
-	let threadId = $state<string>('');
 	let isStreaming = $state(false);
 	let contextUsed = $state<number | null>(null);
 	let contextLimit = $state(16384);
 	let streamingMsgId = $state<string | null>(null);
 	let pendingContent = '';
 
-	// Initialize thread + load history on mount ($effect runs client-side only)
+	// URL is the source of truth for the active thread (?t=<thread_id>).
+	// lastLoaded guards against clobbering optimistic messages right after
+	// we create a thread and update the URL mid-send.
+	const activeThreadId = $derived(page.url.searchParams.get('t') ?? '');
+	let lastLoaded = $state<string | null>(null);
+
+	// Load history whenever the URL switches to a different thread
 	$effect(() => {
-		if (threadId) return;
-		threadId = getOrCreateThreadId();
-		fetchHistory(threadId).then(({ messages: history, contextUsed: used, contextLimit: limit }) => {
+		const t = activeThreadId;
+		if (t === lastLoaded) return;
+		lastLoaded = t;
+		messages = [];
+		contextUsed = null;
+		streamingMsgId = null;
+		if (!t) return;
+		fetchHistory(t).then(({ messages: history, contextUsed: used, contextLimit: limit }) => {
+			if (page.url.searchParams.get('t') !== t) return; // stale response
 			if (history.length > 0) messages = history;
 			if (typeof used === 'number') contextUsed = used;
 			if (typeof limit === 'number') contextLimit = limit;
@@ -41,6 +55,14 @@
 	async function handleSendMessage(content: string) {
 		if (!content.trim() || isStreaming) return;
 
+		// Resolve thread: use active one, or create + reflect in URL
+		let tid = activeThreadId;
+		if (!tid) {
+			tid = await createThread();
+			lastLoaded = tid; // effect must not wipe the optimistic messages below
+			await goto(`/?t=${tid}`);
+		}
+
 		// 1. User message + assistant placeholder
 		messages.push({ id: crypto.randomUUID(), role: 'user', content, timestamp: new Date() });
 		const assistantId = crypto.randomUUID();
@@ -50,7 +72,7 @@
 		isStreaming = true;
 
 		await sendMessage(content, {
-			threadId: threadId,
+			threadId: tid,
 			onEvent: (event) => {
 				if (event.type === 'message' && event.content) {
 					pendingContent += event.content;
@@ -69,6 +91,7 @@
 			onComplete: (id: string) => {
 				isStreaming = false;
 				streamingMsgId = null;
+				sessions.refresh(); // sidebar picks up new/updated session
 			}
 		});
 	}

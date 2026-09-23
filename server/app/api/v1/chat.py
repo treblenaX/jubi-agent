@@ -7,9 +7,13 @@ This module:
 - Persists thread state via the agent's SQLite checkpointer
 """
 
+from contextlib import contextmanager
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional, Any
+import sqlite3
 import time
 import uuid
 import json
@@ -21,6 +25,56 @@ router = APIRouter()
 
 # LangChain message type -> API role
 _ROLE_MAP = {"human": "user", "ai": "assistant", "tool": "tool"}
+
+# Thread metadata lives in the same SQLite file as the checkpointer, in a
+# separate lightweight table (checkpoints is a serde blob — not queryable
+# for sidebar listings). Rows are created lazily on the first chat message.
+_META_DB = "harness.db"
+
+
+@contextmanager
+def _meta_conn():
+    conn = sqlite3.connect(_META_DB, timeout=10)
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS threads (
+                thread_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
+def _upsert_thread_meta(thread_id: str, title: Optional[str] = None) -> None:
+    """Create or touch a thread's metadata row.
+
+    Title is captured from the first user message and never overwritten.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with _meta_conn() as conn:
+        row = conn.execute(
+            "SELECT title FROM threads WHERE thread_id = ?", (thread_id,)
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO threads (thread_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (thread_id, title or "", now, now),
+            )
+        elif title and not row[0]:
+            conn.execute(
+                "UPDATE threads SET title = ?, updated_at = ? WHERE thread_id = ?",
+                (title, now, thread_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE threads SET updated_at = ? WHERE thread_id = ?",
+                (now, thread_id),
+            )
 
 
 def _serialize_message(m: Any) -> dict:
@@ -148,6 +202,13 @@ async def _stream_chat(
     if not thread_id:
         thread_id = f"thread-{int(time.time())}"
 
+    # Sidebar metadata: create/touch row, title = first user message.
+    # Best-effort — chat must not break if metadata fails.
+    try:
+        _upsert_thread_meta(thread_id, title=content[:80])
+    except Exception:
+        pass
+
     config = {
         "configurable": {
             "thread_id": thread_id,
@@ -237,25 +298,17 @@ async def create_thread():
 @router.delete("/threads/{thread_id}")
 async def delete_thread(thread_id: str):
     """
-    Delete a conversation thread.
+    Delete a conversation thread (checkpoints + writes + metadata row).
 
-    Args:
-        thread_id: Thread ID to delete
-
-    Returns:
-        Deletion confirmation
+    Idempotent: deleting an unknown thread still returns 200.
     """
     try:
-        # Note: MemorySaver doesn't support listing all threads directly
-        # In production, use SQLiteSaver or PostgresSaver for multi-thread support
-
-        # For now, we'll return a message explaining this limitation
-        return {
-            "thread_id": thread_id,
-            "status": "no_delete",
-            "note": "MemorySaver is designed for single-thread conversations. "
-                   "Use SQLiteSaver or PostgresSaver for multi-thread support."
-        }
+        checkpointer = getattr(agent, "checkpointer", None)
+        if checkpointer is not None:
+            checkpointer.delete_thread(thread_id)
+        with _meta_conn() as conn:
+            conn.execute("DELETE FROM threads WHERE thread_id = ?", (thread_id,))
+        return {"thread_id": thread_id, "status": "deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -263,18 +316,24 @@ async def delete_thread(thread_id: str):
 @router.get("/threads")
 async def list_threads():
     """
-    List all conversation threads.
-
-    Returns:
-        List of thread metadata (limited with MemorySaver)
+    List all conversation threads (most recently updated first).
     """
     try:
-        # MemorySaver doesn't support listing all threads directly
+        with _meta_conn() as conn:
+            rows = conn.execute(
+                """SELECT thread_id, title, created_at, updated_at
+                   FROM threads ORDER BY updated_at DESC"""
+            ).fetchall()
         return {
-            "threads": [],
-            "status": "no_threads",
-            "note": "MemorySaver is designed for single-thread conversations. "
-                   "Use SQLiteSaver or PostgresSaver for multi-thread support."
+            "threads": [
+                {
+                    "thread_id": r[0],
+                    "title": r[1],
+                    "created_at": r[2],
+                    "updated_at": r[3],
+                }
+                for r in rows
+            ]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

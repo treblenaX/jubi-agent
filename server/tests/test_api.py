@@ -26,6 +26,40 @@ def test_health_endpoint(client):
     assert response.json() == {"status": "ok"}
 
 
+def test_threads_list_create_delete(client):
+    """Test thread metadata endpoints: list, create (id gen), delete."""
+    # Create returns an id without touching the LLM
+    r = client.post("/threads")
+    assert r.status_code == 200
+    thread_id = r.json()["thread_id"]
+    assert thread_id
+
+    # List includes threads that have metadata rows (created on first chat
+    # message via _upsert_thread_meta — simulate that directly here)
+    from app.api.v1.chat import _upsert_thread_meta
+    _upsert_thread_meta(thread_id, title="hello world")
+    r = client.get("/threads")
+    assert r.status_code == 200
+    threads = {t["thread_id"]: t for t in r.json()["threads"]}
+    assert thread_id in threads
+    assert threads[thread_id]["title"] == "hello world"
+
+    # Title is captured once (first message) and not overwritten
+    _upsert_thread_meta(thread_id, title="second message")
+    r = client.get("/threads")
+    title = next(t for t in r.json()["threads"] if t["thread_id"] == thread_id)["title"]
+    assert title == "hello world"
+
+    # Delete removes metadata row; idempotent for unknown threads
+    r = client.delete(f"/threads/{thread_id}")
+    assert r.status_code == 200
+    assert r.json()["status"] == "deleted"
+    r = client.delete(f"/threads/{thread_id}")
+    assert r.status_code == 200
+    r = client.get("/threads")
+    assert thread_id not in [t["thread_id"] for t in r.json()["threads"]]
+
+
 def test_chat_stream(client, sample_message):
     """Test chat streaming endpoint."""
     response = client.post(

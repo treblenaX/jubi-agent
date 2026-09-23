@@ -129,6 +129,34 @@ export async function fetchHistory(
 }
 
 /**
+ * Create a new conversation thread on the server (id generation only —
+ * no LLM call; the metadata row is created lazily on the first message).
+ */
+export async function createThread(): Promise<string> {
+  const res = await fetch(`${BASE_URL}/threads`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to create thread: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.thread_id;
+}
+
+/**
+ * Delete a thread: server removes checkpoints + writes + metadata row.
+ */
+export async function deleteThread(threadId: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/threads/${encodeURIComponent(threadId)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete thread: ${res.status}`);
+  }
+}
+
+/**
  * Send a message and stream the response from orchestrator agent
  */
 export async function sendMessage(
@@ -141,17 +169,7 @@ export async function sendMessage(
   let threadId = options.threadId;
   if (!threadId) {
     try {
-      const createRes = await fetch(`${BASE_URL}/threads`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (createRes.ok) {
-        const data = await createRes.json();
-        threadId = data.thread_id;
-      } else {
-        throw new Error(`Failed to create thread: ${createRes.status}`);
-      }
+      threadId = await createThread();
     } catch (err) {
       options.onError(err as Error);
       abortController.abort();
@@ -224,29 +242,3 @@ export async function sendMessage(
   }
 }
 
-/**
- * Get current thread ID from localStorage or generate new one (client-side only)
- */
-export function getOrCreateThreadId(): string {
-  if (typeof window === 'undefined') {
-    // SSR fallback - generate random ID
-    return `thread-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  let threadId = localStorage.getItem('jubi_thread_id');
-
-  if (!threadId) {
-    const timestamp = Date.now().toString();
-    threadId = `thread-${timestamp}`;
-    localStorage.setItem('jubi_thread_id', threadId);
-  }
-
-  return threadId;
-}
-
-/**
- * Clear current thread (start new chat)
- */
-export function clearThread(): void {
-  localStorage.removeItem('jubi_thread_id');
-}

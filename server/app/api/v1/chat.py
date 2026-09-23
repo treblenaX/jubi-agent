@@ -392,6 +392,7 @@ async def delete_thread(thread_id: str):
             checkpointer.delete_thread(thread_id)
         with _meta_conn() as conn:
             conn.execute("DELETE FROM threads WHERE thread_id = ?", (thread_id,))
+            conn.execute("DELETE FROM message_stamps WHERE thread_id = ?", (thread_id,))
         return {"thread_id": thread_id, "status": "deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

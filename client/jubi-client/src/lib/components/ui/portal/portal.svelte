@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { render, unmount } from 'svelte/motion';
+	import type { Snippet } from "svelte";
 
-  interface Props {
-    children?: any;
-    disabled?: boolean;
-    hydrateId?: string;
-  }
+	interface Props {
+		children?: Snippet;
+		disabled?: boolean;
+		hydrateId?: string;
+	}
 
-  let props = $props<Props>();
+	let { children, disabled = false, hydrateId }: Props = $props();
 </script>
 
-{#if !props.disabled}
-  <div class="portal-root" data-portal={props.hdrateId}>
-    {props.children}
-  </div>
+{#if !disabled}
+	<div class="portal-root" data-portal={hydrateId}>
+		{@render children?.()}
+	</div>
 {/if}

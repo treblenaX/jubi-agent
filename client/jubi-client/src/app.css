@@ -1,6 +1,5 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/geist-mono";
-@import "@fontsource-variable/manrope";
 
 @import "tailwindcss";
 @import "shadcn/tailwind.css";
@@ -9,8 +8,6 @@
 @import "@fontsource-variable/figtree";
 
 @source "../src";
-@source '../src/**/*.{html,js,svelte,ts}';
-@source '../src/lib/components/**/*.{svelte,ts}';
 
 @custom-variant dark (&:is(.dark *));
 

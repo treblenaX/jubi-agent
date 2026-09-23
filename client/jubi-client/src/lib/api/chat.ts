@@ -5,6 +5,8 @@
  * Designed to be scalable: works with any agent (orchestrator, coder, researcher)
  */
 
+import { API_URL as BASE_URL } from "$lib/constants";
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -19,7 +21,7 @@ export interface StreamEvent {
   content?: string;        // Assistant message chunk
   thinking?: string;       // Model reasoning (additional_kwargs.reasoning_content)
   tool_name?: string;      // Tool being called
-  tool_args?: Record<string, any>;
+  tool_args?: string;       // JSON.stringify'd call args
   tool_result?: string;    // Tool output
   error?: string;
   done?: boolean;
@@ -39,9 +41,6 @@ export interface ChatOptions {
   onError: (error: Error) => void;
   onComplete: (threadId: string, tokenUsage?: number) => void;
 }
-
-// Base API URL - server routes at /chat (no /api/v1 prefix)
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2024';
 
 /**
  * Normalize LangGraph stream updates to our StreamEvent format

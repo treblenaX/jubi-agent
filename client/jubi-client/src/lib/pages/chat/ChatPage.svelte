@@ -5,15 +5,8 @@
 	import MessageContainer from "../../components/chat/MessageContainer.svelte";
 	import ChatFooter from "./ChatFooter.svelte";
 	import { sendMessage, fetchHistory, createThread } from "$lib/api/chat";
+	import type { ChatMessage } from "$lib/api/chat";
 	import { sessions } from "$lib/stores/sessions.svelte";
-
-	interface ChatMessage {
-		id: string;
-		role: 'user' | 'assistant';
-		content: string;
-		thinking?: string;
-		timestamp?: Date;
-	}
 
 	// Chat state (single source of truth for the page)
 	let messages = $state<ChatMessage[]>([]);

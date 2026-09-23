@@ -16,7 +16,7 @@
     disabled = false,
     placeholder = "Ask, Search or Chat...",
     onSend = () => {}
-  } = $props<Props>();
+  }: Props = $props();
 
   let value = $state<string>("");
   let isComposing = $state(false);
@@ -88,7 +88,7 @@
     <!-- Send button -->
     <Button
       variant="default"
-      size="icon"
+      size="icon-sm"
       class="ms-auto rounded-full"
       disabled={disabled || !value.trim()}
       onclick={send}
@@ -107,7 +107,7 @@
   :global([data-slot="input-group"]:focus-within) {
     border-color: transparent;
     box-shadow: none;
-    background-color: color-mix(in oklab, #7c4dff 7%, transparent);
+    background-color: color-mix(in oklab, var(--primary) 7%, transparent);
   }
   :global([data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible)) {
     border-color: transparent;

@@ -11,8 +11,8 @@
   let { children } = $props();
 
   // StatusDot state - init false/null to avoid flash on first render
-  let apiUp: boolean = $state(false);
-  let model: { connected: boolean; name: string; error: string | null } | null = $state(null);
+  let apiUp = $state(false);
+  let model = $state<{ connected: boolean; name: string; error: string | null } | null>(null);
   let showHealthModal: boolean = $state(false);
 
   // Active thread comes from the URL (?t=<thread_id>) — same source as ChatPage
@@ -27,7 +27,7 @@
       apiUp = response.ok;
       model = response.ok ? ((await response.json()).model ?? null) : null;
     } catch (_error) {
-      console.log('API health check failed:', _error?.message || 'Unknown error');
+      console.log('API health check failed:', _error instanceof Error ? _error.message : 'Unknown error');
       apiUp = false;
       model = null;
     }

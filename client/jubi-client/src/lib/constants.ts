@@ -1,3 +1,1 @@
-export const HIGHEST_Z_INDEX = 9999;
-
-export const API_URL = "http://localhost:2024";
+export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:2024";

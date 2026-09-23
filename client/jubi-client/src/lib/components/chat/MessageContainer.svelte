@@ -2,14 +2,7 @@
   import * as Message from "$lib/components/ui/message";
   import * as Bubble from "$lib/components/ui/bubble";
   import { renderMarkdown } from "$lib/utils/markdown";
-
-  interface ChatMessage {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    thinking?: string;
-    timestamp?: Date;
-  }
+  import type { ChatMessage } from "$lib/api/chat";
 
   // Presentational: messages are owned by ChatPage
   let { messages }: { messages: ChatMessage[] } = $props();
@@ -61,7 +54,7 @@
               </details>
             {/if}
             <Message.Header>{message.role === 'user' ? 'You' : 'Jubi'}</Message.Header>
-            <Bubble.Root variant={message.role === 'user' ? '' : 'muted'}>
+            <Bubble.Root variant={message.role === 'user' ? 'default' : 'muted'}>
               <Bubble.Content>
                 {#if message.role === 'assistant' && message.content === ''}
                   <!-- Still thinking: no content streamed yet -->

@@ -9,6 +9,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
   timestamp?: Date;
 }
 
@@ -16,6 +17,7 @@ export interface StreamEvent {
   type: 'message' | 'tool_call' | 'tool_result' | 'error' | 'done' | 'context';
   node?: string;           // LangGraph node name (orchestrator, coder, researcher)
   content?: string;        // Assistant message chunk
+  thinking?: string;       // Model reasoning (additional_kwargs.reasoning_content)
   tool_name?: string;      // Tool being called
   tool_args?: Record<string, any>;
   tool_result?: string;    // Tool output
@@ -45,6 +47,11 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:2024';
  * Normalize LangGraph stream updates to our StreamEvent format
  */
 function normalizeEvent(update: Record<string, any>): StreamEvent {
+  // Live thinking delta (token-level, from the "messages" stream mode)
+  if (update.thinking !== undefined) {
+    return { type: 'message', content: '', thinking: update.thinking };
+  }
+
   // Context usage event (emitted after the stream finishes)
   if (update.context) {
     return {
@@ -62,7 +69,8 @@ function normalizeEvent(update: Record<string, any>): StreamEvent {
     
     const messages = payload.messages || [];
     for (const msg of messages) {
-      if (!msg || !msg.content) continue;
+      if (!msg || (!msg.content && !msg.thinking)) continue;
+      if (msg.thinking) event.thinking = msg.thinking;
       
       // Determine event type based on message properties
       const kind = msg.type || 'ai';
@@ -116,7 +124,8 @@ export async function fetchHistory(
       role: (m.role || (m.type === 'human' ? 'user' : 'assistant')) as 'user' | 'assistant',
       content: m.content || '',
       // Server-provided timestamp (message_stamps table); undefined if absent
-      timestamp: m.timestamp ? new Date(m.timestamp) : undefined
+      timestamp: m.timestamp ? new Date(m.timestamp) : undefined,
+      thinking: m.thinking
     }));
     return {
       messages,

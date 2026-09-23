@@ -113,7 +113,8 @@ def _get_message_stamps(thread_id: str) -> dict:
     return {r[0]: r[1] for r in rows}
 
 
-def _serialize_message(m: Any, timestamp: Optional[str] = None) -> dict:
+def _serialize_message(m: Any, timestamp: Optional[str] = None,
+                       include_thinking: bool = True) -> dict:
     """Convert a LangChain message (or dict) to a JSON-safe dict."""
     if isinstance(m, dict):
         return m
@@ -135,6 +136,10 @@ def _serialize_message(m: Any, timestamp: Optional[str] = None) -> dict:
     }
     if timestamp:
         out["timestamp"] = timestamp
+    ak = getattr(m, "additional_kwargs", None)
+    thinking = ak.get("reasoning_content") if isinstance(ak, dict) else None
+    if thinking and include_thinking:
+        out["thinking"] = thinking
     tool_calls = getattr(m, "tool_calls", None)
     if tool_calls:
         out["tool_calls"] = [
@@ -176,7 +181,11 @@ def _serialize_update(update: dict) -> dict:
         node_out = {}
         for key, value in payload.items():
             if key == "messages" and isinstance(value, list):
-                node_out["messages"] = [_serialize_message(m) for m in value]
+                # Stream updates strip thinking: live thoughts arrive as
+                # token-level deltas via the "messages" stream mode instead.
+                node_out["messages"] = [
+                    _serialize_message(m, include_thinking=False) for m in value
+                ]
             else:
                 try:
                     json.dumps(value)
@@ -268,12 +277,19 @@ async def _stream_chat(
     # keeps the event loop free AND is compatible with the sync SqliteSaver.
     def stream_generator():
         try:
-            for update in agent.stream(
+            for mode, data in agent.stream(
                 {"messages": [user_msg]},
                 config=config,
-                stream_mode="updates",
+                stream_mode=["updates", "messages"],
             ):
-                payload = _serialize_update(update)
+                if mode == "messages":
+                    # Token-level reasoning deltas -> live thoughts above the bubble
+                    chunk = data[0] if isinstance(data, tuple) else data
+                    rc = (getattr(chunk, "additional_kwargs", None) or {}).get("reasoning_content")
+                    if rc:
+                        yield f"data: {json.dumps({'thinking': rc})}\n\n"
+                    continue
+                payload = _serialize_update(data)
                 # Stamp assistant messages as they are emitted (best-effort)
                 try:
                     _stamp_messages(thread_id, [

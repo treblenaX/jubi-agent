@@ -138,6 +138,28 @@ def test_message_stamps_roundtrip(client):
     conn.close()
 
 
+def test_serialize_message_includes_thinking(client):
+    """Reasoning content from additional_kwargs is exposed as 'thinking'."""
+    from types import SimpleNamespace
+    from app.api.v1.chat import _serialize_message
+
+    msg = SimpleNamespace(
+        type="ai", content="answer", id="m-2", tool_calls=None,
+        additional_kwargs={"reasoning_content": "hmm let me think"},
+    )
+    out = _serialize_message(msg)
+    assert out["thinking"] == "hmm let me think"
+
+    plain = SimpleNamespace(type="ai", content="x", id="m-3", tool_calls=None,
+                            additional_kwargs={})
+    assert "thinking" not in _serialize_message(plain)
+
+    # Stream updates strip thinking (live thoughts come via token chunks)
+    from app.api.v1.chat import _serialize_update
+    upd = _serialize_update({"node": {"messages": [msg]}})
+    assert "thinking" not in upd["node"]["messages"][0]
+
+
 def test_cors_headers(client):
     """Test CORS headers are present."""
     response = client.get("/health", headers={"Origin": "http://localhost:5173"})

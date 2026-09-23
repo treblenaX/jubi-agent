@@ -11,6 +11,7 @@
 		id: string;
 		role: 'user' | 'assistant';
 		content: string;
+		thinking?: string;
 		timestamp?: Date;
 	}
 
@@ -21,6 +22,7 @@
 	let contextLimit = $state(16384);
 	let streamingMsgId = $state<string | null>(null);
 	let pendingContent = '';
+	let pendingThinking = '';
 
 	// URL is the source of truth for the active thread (?t=<thread_id>).
 	// lastLoaded guards against clobbering optimistic messages right after
@@ -67,12 +69,18 @@
 		const assistantId = crypto.randomUUID();
 		streamingMsgId = assistantId;
 		pendingContent = '';
+		pendingThinking = '';
 		messages.push({ id: assistantId, role: 'assistant', content: '', timestamp: new Date() });
 		isStreaming = true;
 
 		await sendMessage(content, {
 			threadId: tid,
 			onEvent: (event) => {
+				if (event.thinking) {
+					pendingThinking += event.thinking;
+					const msg = messages.find((m) => m.id === assistantId);
+					if (msg) msg.thinking = pendingThinking;
+				}
 				if (event.type === 'message' && event.content) {
 					pendingContent += event.content;
 					updateMessage(assistantId, pendingContent);

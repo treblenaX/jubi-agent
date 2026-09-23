@@ -41,6 +41,7 @@ def make_model(name=settings.OLLAMA_MODEL, temp=settings.OLLAMA_TEMPERATURE,
         temperature=temp,
         num_ctx=settings.OLLAMA_NUM_CTX,
         keep_alive=settings.OLLAMA_KEEP_ALIVE,
+        reasoning=True,  # surface model thoughts in additional_kwargs['reasoning_content']
         base_url=base_url
     )
 

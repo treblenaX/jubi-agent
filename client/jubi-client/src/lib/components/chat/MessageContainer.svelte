@@ -6,6 +6,7 @@
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    thinking?: string;
     timestamp?: Date;
   }
 
@@ -20,6 +21,7 @@
     // Track message count + last message content (streaming updates retrigger this)
     const count = messages.length;
     const _lastContent = messages[count - 1]?.content ?? '';
+    const _lastThinking = messages[count - 1]?.thinking ?? ''; // thinking growth also retriggers scroll
     const el = containerEl;
     if (!el) return;
 
@@ -51,6 +53,12 @@
       {#each messages as message (message.id)}
         <Message.Root align={message.role === 'user' ? 'end' : 'start'}>
           <Message.Content>
+            {#if message.thinking}
+              <details class="thinking-block" open={message.content === ''}>
+                <summary>Thoughts</summary>
+                <div class="thinking-body">{message.thinking}</div>
+              </details>
+            {/if}
             <Message.Header>{message.role === 'user' ? 'You' : 'Jubi'}</Message.Header>
             <Bubble.Root variant={message.role === 'user' ? '' : 'muted'}>
               <Bubble.Content>
@@ -75,3 +83,23 @@
     {/if}
   </div>
 </div>
+
+<style>
+  .thinking-block summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    user-select: none;
+  }
+  .thinking-body {
+    max-height: 12rem;
+    overflow-y: auto;
+    margin-top: 0.375rem;
+    padding: 0.375rem 0.625rem;
+    border-left: 2px solid var(--border);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--muted-foreground);
+    white-space: pre-wrap;
+  }
+</style>

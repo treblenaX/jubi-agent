@@ -28,6 +28,7 @@ env/
 
 # Checkpoints (only for REPL mode, not langgraph dev)
 harness.db
+harness.db-*
 
 # langgraph dev persistence
 .langgraph_api/

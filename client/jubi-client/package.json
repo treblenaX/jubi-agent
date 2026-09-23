@@ -25,6 +25,8 @@
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"cn": "^0.3.0",
+		"dompurify": "^3.4.16",
+		"marked": "^18.0.14",
 		"mode-watcher": "^1.1.0",
 		"shadcn": "^4.21.0",
 		"tailwind-merge": "^3.7.0",

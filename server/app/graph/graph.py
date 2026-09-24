@@ -15,6 +15,7 @@ from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents.backends import FilesystemBackend
 from app.core.config import settings
 from app.core import runtime
+from app.graph.state_doc import StateDocMiddleware
 
 
 # Define graph state
@@ -156,21 +157,37 @@ def build_agent(checkpointer=None):
         "model": shared,  # or make_model("qwen3:8b", temp=0.3)
     }
 
-    # Compaction middleware (SPEC-02): summarize nearing-limit context into a
-    # structured summary; offloaded history lands in the sandbox FS backend.
+    # Compaction middleware (SPEC-02). Two strategies behind one trigger/keep:
+    # - state_doc: StateDocMiddleware compiles durable state (architecture
+    #   decisions, requirements, unresolved bugs, next steps) into a per-thread
+    #   markdown doc on the sandbox backend, evicts the middle of the history,
+    #   and pins the doc into the system prompt every call.
+    # - summary: deepagents SummarizationMiddleware (LLM summary + offload).
     # Trigger stored as % of num_ctx in settings, sent as absolute tokens —
     # fractional triggers require model profile metadata ChatOllama lacks.
     rs = runtime.get()
+    backend = FilesystemBackend(root_dir=settings.SANDBOX_ROOT)
     middleware = ()
     if rs["compaction_enabled"]:
-        middleware = (
-            SummarizationMiddleware(
-                model=shared,
-                backend=FilesystemBackend(root_dir=settings.SANDBOX_ROOT),
-                trigger=("tokens", int(rs["compaction_trigger_fraction"] * rs["num_ctx"])),
-                keep=("messages", rs["compaction_keep_messages"]),
-            ),
-        )
+        trigger_tokens = int(rs["compaction_trigger_fraction"] * rs["num_ctx"])
+        if rs.get("compaction_mode", "state_doc") == "summary":
+            middleware = (
+                SummarizationMiddleware(
+                    model=shared,
+                    backend=backend,
+                    trigger=("tokens", trigger_tokens),
+                    keep=("messages", rs["compaction_keep_messages"]),
+                ),
+            )
+        else:
+            middleware = (
+                StateDocMiddleware(
+                    model=shared,
+                    backend=backend,
+                    trigger_tokens=trigger_tokens,
+                    keep_messages=rs["compaction_keep_messages"],
+                ),
+            )
 
     return create_deep_agent(
         model=shared,
@@ -178,6 +195,8 @@ def build_agent(checkpointer=None):
         tools=[list_project, read_project_file],  # read-only peek; NO writes
         subagents=[coder, researcher],
         middleware=middleware,
+        backend=backend,  # agent FS tools share the sandbox: state docs +
+        # offloaded conversation history become readable via read_file/ls
         checkpointer=checkpointer,
     )
 

@@ -18,8 +18,9 @@ import time
 import uuid
 import json
 
-from app.graph.graph import agent  # LangGraph agent instance
+from app.graph.graph import get_agent  # LangGraph agent instance (rebuilt on settings change)
 from app.core.config import settings
+from app.core import runtime
 
 router = APIRouter()
 
@@ -156,6 +157,7 @@ def _context_usage(config: dict) -> Optional[dict]:
     of the final LLM call ≈ full context); falls back to a chars/4 estimate.
     """
     try:
+        agent = get_agent()
         state = agent.get_state(config=config)
         msgs = (state.values or {}).get("messages", []) if state else []
         if not msgs:
@@ -167,7 +169,7 @@ def _context_usage(config: dict) -> Optional[dict]:
         used = (um or {}).get("input_tokens")
         if not used:
             used = sum(len(str(getattr(m, "content", ""))) for m in msgs) // 4
-        return {"used": used, "limit": settings.OLLAMA_NUM_CTX}
+        return {"used": used, "limit": runtime.get()["num_ctx"]}
     except Exception:
         return None
 
@@ -277,6 +279,7 @@ async def _stream_chat(
     # keeps the event loop free AND is compatible with the sync SqliteSaver.
     def stream_generator():
         try:
+            agent = get_agent()
             for mode, data in agent.stream(
                 {"messages": [user_msg]},
                 config=config,
@@ -301,7 +304,7 @@ async def _stream_chat(
                 yield f"data: {json.dumps(payload)}\n\n"
             # Sweep: stamp anything updates missed (e.g. the input user message)
             try:
-                state = agent.get_state(config=config)
+                state = get_agent().get_state(config=config)
                 if state and state.values:
                     _stamp_messages(thread_id, [
                         _serialize_message(m) for m in state.values.get("messages", [])
@@ -341,7 +344,7 @@ async def get_messages(thread_id: Optional[str] = None):
     }
 
     try:
-        state = agent.get_state(config=config)
+        state = get_agent().get_state(config=config)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -387,7 +390,7 @@ async def delete_thread(thread_id: str):
     Idempotent: deleting an unknown thread still returns 200.
     """
     try:
-        checkpointer = getattr(agent, "checkpointer", None)
+        checkpointer = getattr(get_agent(), "checkpointer", None)
         if checkpointer is not None:
             checkpointer.delete_thread(thread_id)
         with _meta_conn() as conn:

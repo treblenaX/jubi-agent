@@ -3,10 +3,11 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { HugeiconsIcon } from "@hugeicons/svelte";
-  import { PlusSignIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
+  import { PlusSignIcon, Cancel01Icon, SettingsIcon } from "@hugeicons/core-free-icons";
   import { API_URL } from "$lib/constants";
   import { sessions } from "$lib/stores/sessions.svelte";
   import { deleteThread } from "$lib/api/chat";
+  import SettingsPanel from "$lib/components/settings/SettingsPanel.svelte";
 
   let { children } = $props();
 
@@ -14,6 +15,7 @@
   let apiUp = $state(false);
   let model = $state<{ connected: boolean; name: string; error: string | null } | null>(null);
   let showHealthModal: boolean = $state(false);
+  let showSettings: boolean = $state(false);
 
   // Active thread comes from the URL (?t=<thread_id>) — same source as ChatPage
   const activeThreadId = $derived(page.url.searchParams.get('t') ?? '');
@@ -119,6 +121,9 @@
       </div>
     {/if}
 
+    <!-- Settings panel -->
+    <SettingsPanel bind:open={showSettings} />
+
     <!-- New Chat -->
     <div class="px-4 pt-4">
       <button
@@ -159,6 +164,17 @@
         <p class="px-3 py-2 text-xs text-muted-foreground">No sessions yet</p>
       {/each}
     </nav>
+
+    <!-- Settings -->
+    <div class="px-4 pb-4">
+      <button
+        class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        onclick={() => (showSettings = true)}
+      >
+        <HugeiconsIcon icon={SettingsIcon} size={20} strokeWidth={1.5} class="h-5 w-5" />
+        <span>Settings</span>
+      </button>
+    </div>
   </aside>
   <!-- Primary Page View Content Area -->
   <main class="flex-1 overflow-y-auto bg-background p-8">

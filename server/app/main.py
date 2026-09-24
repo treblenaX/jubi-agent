@@ -21,7 +21,9 @@ if '/home/ec/.nanobot/workspace/jubi/server' not in sys.path:
 
 from app.api.v1.chat import router as chat_router
 from app.api.v1.files import router as files_router
+from app.api.v1.settings import router as settings_router
 from app.core.config import settings
+from app.core import runtime
 
 
 async def _check_model() -> dict:
@@ -31,17 +33,18 @@ async def _check_model() -> dict:
             resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
             resp.raise_for_status()
             names = [m.get("name", "") for m in resp.json().get("models", [])]
-        if settings.OLLAMA_MODEL in names:
-            return {"connected": True, "name": settings.OLLAMA_MODEL, "error": None}
+        model_name = runtime.get()["model"]
+        if model_name in names:
+            return {"connected": True, "name": model_name, "error": None}
         return {
             "connected": False,
-            "name": settings.OLLAMA_MODEL,
+            "name": model_name,
             "error": f"model not available on Ollama server ({len(names)} models installed)",
         }
     except Exception as exc:
         return {
             "connected": False,
-            "name": settings.OLLAMA_MODEL,
+            "name": runtime.get()["model"],
             "error": f"{type(exc).__name__}: {exc}",
         }
 
@@ -68,9 +71,10 @@ def create_application() -> FastAPI:
         expose_headers=["access-control-allow-origin"]
     )
 
-    # Include API routes (no /v1 prefix - routes at /chat and /files)
+    # Include API routes (no /v1 prefix - routes at /chat, /files, /settings)
     app.include_router(chat_router)  # Routes will be at /chat/*
     app.include_router(files_router)  # Routes will be at /files/*
+    app.include_router(settings_router)  # Routes will be at /settings, /models
     
     # Add custom middleware for logging
     @app.middleware("http")

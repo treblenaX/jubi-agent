@@ -127,3 +127,6 @@ temp/
 # Local-only docs (design plans etc.) — never commit
 /docs/
 /DESIGN_PLAN.md
+
+# Runtime settings state (settings menu writes here)
+server/runtime_settings.json

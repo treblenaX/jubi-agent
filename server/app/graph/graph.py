@@ -11,7 +11,10 @@ import operator
 from langgraph.graph import StateGraph, END
 from langchain_ollama import ChatOllama
 from deepagents import create_deep_agent
+from deepagents.middleware.summarization import SummarizationMiddleware
+from deepagents.backends import FilesystemBackend
 from app.core.config import settings
+from app.core import runtime
 
 
 # Define graph state
@@ -21,32 +24,31 @@ class AgentState(TypedDict):
 
 
 # Create shared model (single model for all agents)
-def make_model(name=settings.OLLAMA_MODEL, temp=settings.OLLAMA_TEMPERATURE, 
+def make_model(name=None, temp=settings.OLLAMA_TEMPERATURE,
                base_url=settings.OLLAMA_BASE_URL):
     """
-    Create a shared Ollama model instance.
+    Create a shared Ollama model instance from current runtime settings.
 
     Start with ONE shared model (no VRAM swap thrash). Split per-role later.
 
     Args:
-        name: Model name from Ollama library
+        name: Model name (default: runtime settings model)
         temp: Temperature for generation
         base_url: Ollama server URL (default: your network host)
 
     Returns:
         Configured ChatOllama instance
     """
+    rs = runtime.get()
     return ChatOllama(
-        model=name,
+        model=name or rs["model"],
         temperature=temp,
-        num_ctx=settings.OLLAMA_NUM_CTX,
+        num_ctx=rs["num_ctx"],
         keep_alive=settings.OLLAMA_KEEP_ALIVE,
         reasoning=True,  # surface model thoughts in additional_kwargs['reasoning_content']
         base_url=base_url
     )
 
-
-shared = make_model()
 
 # System prompts for each agent role
 ORCHESTRATOR_PROMPT = """You are the orchestrator agent in a multi-agent development harness.
@@ -129,6 +131,9 @@ def build_agent(checkpointer=None):
         list_project, run_shell, run_tests, web_search, fetch_url
     )
     
+    # Shared model built from current runtime settings (rebuild picks up changes)
+    shared = make_model()
+
     # Define subagent configs (plain dicts - the deepagents contract)
     coder = {
         "name": "coder",
@@ -151,11 +156,28 @@ def build_agent(checkpointer=None):
         "model": shared,  # or make_model("qwen3:8b", temp=0.3)
     }
 
+    # Compaction middleware (SPEC-02): summarize nearing-limit context into a
+    # structured summary; offloaded history lands in the sandbox FS backend.
+    # Trigger stored as % of num_ctx in settings, sent as absolute tokens —
+    # fractional triggers require model profile metadata ChatOllama lacks.
+    rs = runtime.get()
+    middleware = ()
+    if rs["compaction_enabled"]:
+        middleware = (
+            SummarizationMiddleware(
+                model=shared,
+                backend=FilesystemBackend(root_dir=settings.SANDBOX_ROOT),
+                trigger=("tokens", int(rs["compaction_trigger_fraction"] * rs["num_ctx"])),
+                keep=("messages", rs["compaction_keep_messages"]),
+            ),
+        )
+
     return create_deep_agent(
         model=shared,
         system_prompt=ORCHESTRATOR_PROMPT,
         tools=[list_project, read_project_file],  # read-only peek; NO writes
         subagents=[coder, researcher],
+        middleware=middleware,
         checkpointer=checkpointer,
     )
 
@@ -259,6 +281,23 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 _ckpt_conn = sqlite3.connect("harness.db", check_same_thread=False)
 agent = build_agent(checkpointer=SqliteSaver(_ckpt_conn))
+
+
+def get_agent():
+    """Current agent instance (rebuild_agent swaps the module reference)."""
+    return agent
+
+
+def rebuild_agent():
+    """Rebuild the agent from current runtime settings (settings PUT path).
+
+    Reuses the module-level checkpointer connection so thread persistence
+    survives the swap. Raises if the new agent fails to build (the old
+    agent stays live in that case — the exception propagates to the API).
+    """
+    global agent
+    agent = build_agent(checkpointer=SqliteSaver(_ckpt_conn))
+    return agent
 
 
 if __name__ == "__main__":

@@ -2,17 +2,19 @@
   import * as Message from "$lib/components/ui/message";
   import * as Bubble from "$lib/components/ui/bubble";
   import { renderMarkdown } from "$lib/utils/markdown";
-  import type { ChatMessage, ActivityItem } from "$lib/api/chat";
+  import type { ChatMessage } from "$lib/api/chat";
 
-  // Presentational: messages + activity are owned by ChatPage
+  // Presentational: messages + transcripts are owned by ChatPage
   let {
     messages,
-    activity,
-    transcripts
+    transcripts,
+    thoughtsExpanded = true,
+    showRecovered = false
   }: {
     messages: ChatMessage[];
-    activity?: ActivityItem[];
-    transcripts?: Record<number, string>;
+    transcripts?: Record<string, string>;
+    thoughtsExpanded?: boolean;
+    showRecovered?: boolean;
   } = $props();
 
   // Auto-scroll: pin to bottom while streaming; don't yank if user scrolled up
@@ -22,9 +24,14 @@
   $effect(() => {
     // Track message count + last message content (streaming updates retrigger this)
     const count = messages.length;
-    const _lastContent = messages[count - 1]?.content ?? '';
-    const _lastThinking = messages[count - 1]?.thinking ?? ''; // thinking growth also retriggers scroll
-    const _activityCount = activity?.length ?? 0; // activity lines also retrigger scroll
+    const last = messages[count - 1];
+    const _lastContent = last?.content ?? '';
+    const _lastThinking = last?.thinking ?? ''; // thinking growth also retriggers scroll
+    // Timeline growth (thinking/tool/text entries) and transcript polls also retrigger
+    const tl = last?.timeline;
+    const _tlLen = tl?.length ?? 0;
+    const _tlLast = tl?.[tl.length - 1]?.text?.length ?? 0;
+    const _txCount = transcripts ? Object.keys(transcripts).length : 0;
     const el = containerEl;
     if (!el) return;
 
@@ -56,23 +63,67 @@
       {#each messages as message (message.id)}
         <Message.Root align={message.role === 'user' ? 'end' : 'start'}>
           <Message.Content>
-            {#if message.thinking}
-              <details class="thinking-block" open={message.content === ''}>
-                <summary>Thoughts</summary>
-                <div class="thinking-body md-body">{@html renderMarkdown(message.thinking)}</div>
-              </details>
-            {/if}
             <Message.Header>{message.role === 'user' ? 'You' : 'Jubi'}</Message.Header>
-            <Bubble.Root variant={message.role === 'user' ? 'default' : 'muted'}>
-              <Bubble.Content>
-                {#if message.role === 'assistant' && message.content === ''}
-                  <!-- Still thinking: no content streamed yet -->
-                  <span class="shimmer">Thinking…</span>
-                {:else}
-                  <div class="md-body">{@html renderMarkdown(message.content)}</div>
+            {#if message.timeline}
+              <!-- Chronological timeline: thoughts, tool/dispatch lines, text -->
+              {#each message.timeline as e, i (i)}
+                {#if e.kind === 'thinking' && e.text}
+                  <details class="thinking-block" open={thoughtsExpanded}>
+                    <summary>Thoughts</summary>
+                    <div class="thinking-body md-body">{@html renderMarkdown(e.text)}</div>
+                  </details>
+                {:else if e.kind === 'tool'}
+                  <div class="activity-line">
+                    <span class="glyph" class:running={e.status === 'running'}>
+                      {e.status === 'running' ? '▸' : '✓'}
+                    </span>
+                    <span class="node">{e.node}</span>
+                    <span class="tool">{e.label}</span>
+                    {#if e.result}
+                      <span class="result">→ {e.result}</span>
+                    {:else if e.args}
+                      <span class="args">{e.args}</span>
+                    {/if}
+                  </div>
+                  {#if e.subagent && transcripts?.[e.subagent]}
+                    <!-- Subagent chat panel: polled transcript of the dispatch -->
+                    <details class="transcript" open={e.status === 'running'}>
+                      <summary>subagent chat {e.status === 'running' ? '· live' : ''}</summary>
+                      <pre>{transcripts[e.subagent]}</pre>
+                    </details>
+                  {/if}
+                {:else if e.kind === 'text' && e.text}
+                  <Bubble.Root variant="muted">
+                    <Bubble.Content>
+                      <div class="md-body">{@html renderMarkdown(e.text)}</div>
+                    </Bubble.Content>
+                  </Bubble.Root>
                 {/if}
-              </Bubble.Content>
-            </Bubble.Root>
+              {/each}
+              {#if !message.timeline.some((e) => e.kind === 'text')}
+                <!-- Still working: nothing final streamed yet -->
+                <Bubble.Root variant="muted">
+                  <Bubble.Content><span class="shimmer">Thinking…</span></Bubble.Content>
+                </Bubble.Root>
+              {/if}
+            {:else}
+              {#if message.thinking}
+                <details class="thinking-block" open={thoughtsExpanded}>
+                  <summary>Thoughts</summary>
+                  <div class="thinking-body md-body">{@html renderMarkdown(message.thinking)}</div>
+                </details>
+              {/if}
+              <Bubble.Root variant={message.role === 'user' ? 'default' : 'muted'}>
+                <Bubble.Content>
+                  {#if message.role === 'assistant' && message.content === ''}
+                    <!-- Still thinking: no content streamed yet -->
+                    <span class="shimmer">Thinking…</span>
+                  {:else}
+                    <div class="md-body">{@html renderMarkdown(message.content)}</div>
+                  {/if}
+                </Bubble.Content>
+              </Bubble.Root>
+            {/if}
             {#if message.timestamp}
               <Message.Footer>
                 {message.timestamp.toDateString() === new Date().toDateString()
@@ -85,33 +136,7 @@
       {/each}
     {/if}
 
-    <!-- Live tool-activity feed for the in-flight turn -->
-    {#if activity && activity.length > 0}
-      <div class="activity-feed" aria-live="polite">
-        <div class="activity-title">Activity</div>
-        {#each activity as a, i (i)}
-          <div class="activity-line">
-            <span class="glyph" class:running={a.status === 'running'}>
-              {a.status === 'running' ? '▸' : '✓'}
-            </span>
-            <span class="node">{a.node}</span>
-            <span class="tool">{a.tool}</span>
-            {#if a.result}
-              <span class="result">→ {a.result}</span>
-            {:else if a.args}
-              <span class="args">{a.args}</span>
-            {/if}
-          </div>
-          {#if a.subagent && transcripts?.[a.subagent]}
-            <!-- Subagent chat panel: polled transcript of the dispatch -->
-            <details class="transcript" open={a.status === 'running'}>
-              <summary>subagent chat {a.status === 'running' ? '· live' : ''}</summary>
-              <pre>{transcripts[a.subagent]}</pre>
-            </details>
-          {/if}
-        {/each}
-      </div>
-    {:else if transcripts && Object.keys(transcripts).length > 0}
+    {#if showRecovered && transcripts && Object.keys(transcripts).length > 0}
       <!-- Recovered dispatch transcripts after a refresh (no live feed) -->
       <div class="activity-feed" aria-live="polite">
         <div class="activity-title">Subagent chats · last dispatch</div>

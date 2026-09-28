@@ -6,8 +6,8 @@
 	import MessageContainer from "../../components/chat/MessageContainer.svelte";
 	import ChatFooter from "./ChatFooter.svelte";
 	import Chatbox from "../../components/chat/Chatbox.svelte";
-	import { sendMessage, fetchHistory, createThread, fetchTranscript, type ActivityItem } from "$lib/api/chat";
-	import type { ChatMessage } from "$lib/api/chat";
+	import { sendMessage, fetchHistory, createThread, fetchTranscript, type ChatMessage, type TimelineEntry } from "$lib/api/chat";
+	import { getSettings } from "$lib/api/settings";
 	import { sessions } from "$lib/stores/sessions.svelte";
 
 	// Chat state (single source of truth for the page)
@@ -16,16 +16,28 @@
 	let contextUsed = $state<number | null>(null);
 	let contextLimit = $state(16384);
 	let streamingMsgId = $state<string | null>(null);
-	let pendingContent = '';
-	let pendingThinking = '';
-	// Live tool-activity feed for the in-flight turn (cleared per send/thread)
-	let activity = $state<ActivityItem[]>([]);
 	// Subagent transcripts keyed by subagent name ("coder"/"researcher").
 	// Grows live during a dispatch (polled); refetched on history load so the
 	// panel survives refresh (sandbox files persist server-side).
 	let transcripts = $state<Record<string, string>>({});
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
-	let runningDispatch: { idx: number; subagent: string } | null = null;
+	let runningDispatch: { subagent: string } | null = null;
+	// Thoughts <details> default state (settings → thoughts_expanded)
+	let thoughtsExpanded = $state(true);
+	// True once a live turn happened this page-session; the recovered
+	// "Subagent chats" section only shows on freshly loaded threads.
+	let liveTurnHappened = $state(false);
+
+	// Load the thoughts-expanded setting now and whenever the settings panel saves
+	$effect(() => {
+		const reload = () =>
+			void getSettings().then((s) => {
+				if (s && typeof s.thoughts_expanded === 'boolean') thoughtsExpanded = s.thoughts_expanded;
+			});
+		reload();
+		window.addEventListener('jubi-settings-changed', reload);
+		return () => window.removeEventListener('jubi-settings-changed', reload);
+	});
 
 	function stopPolling() {
 		if (pollTimer) {
@@ -68,6 +80,9 @@
 	// chat layout takes over.
 	const isHome = $derived(messages.length === 0);
 
+	// True when the loaded thread has recovered transcripts to show (refresh path)
+	const showRecovered = $derived(!isStreaming && !liveTurnHappened);
+
 	// Load history whenever the URL switches to a different thread
 	$effect(() => {
 		const t = activeThreadId;
@@ -76,8 +91,8 @@
 		messages = [];
 		contextUsed = null;
 		streamingMsgId = null;
-		activity = [];
 		transcripts = {};
+		liveTurnHappened = false;
 		stopPolling();
 		if (!t) return;
 		fetchHistory(t).then(({ messages: history, contextUsed: used, contextLimit: limit }) => {
@@ -92,6 +107,15 @@
 	function updateMessage(msgId: string, content: string) {
 		const msg = messages.find((m) => m.id === msgId);
 		if (msg) msg.content = content;
+	}
+
+	// Append a token to the timeline, extending the previous entry of the same
+	// kind so contiguous thinking/text stays one block.
+	function tlAppendText(msg: ChatMessage, kind: 'thinking' | 'text', token: string) {
+		if (!msg.timeline) msg.timeline = [];
+		const last = msg.timeline[msg.timeline.length - 1];
+		if (last && last.kind === kind) last.text = (last.text ?? '') + token;
+		else msg.timeline.push({ kind, text: token });
 	}
 
 	// Send message handler: optimistic UI, then stream from orchestrator
@@ -110,57 +134,53 @@
 		messages.push({ id: crypto.randomUUID(), role: 'user', content, timestamp: new Date() });
 		const assistantId = crypto.randomUUID();
 		streamingMsgId = assistantId;
-		pendingContent = '';
-		pendingThinking = '';
-		activity = [];
 		transcripts = {};
 		stopPolling();
-		messages.push({ id: assistantId, role: 'assistant', content: '', timestamp: new Date() });
+		messages.push({ id: assistantId, role: 'assistant', content: '', timestamp: new Date(), timeline: [] });
+		liveTurnHappened = true;
 		isStreaming = true;
 
 		await sendMessage(content, {
 			threadId: tid,
 			onEvent: (event) => {
-				if (event.thinking) {
-					pendingThinking += event.thinking;
-					const msg = messages.find((m) => m.id === assistantId);
-					if (msg) msg.thinking = pendingThinking;
-				}
+				const msg = messages.find((m) => m.id === assistantId);
+				if (!msg) return;
+				if (event.thinking) tlAppendText(msg, 'thinking', event.thinking);
 				if (event.type === 'tool_call' && event.tool_name) {
 					// task dispatches read as "dispatch → coder" — the milestone line
 					let label = event.tool_name;
+					let subagent: string | undefined;
 					try {
 						const args = JSON.parse(event.tool_args ?? '{}');
 						if (event.tool_name === 'task' && args.subagent_type) {
 							label = `dispatch → ${args.subagent_type}`;
+							subagent = args.subagent_type;
 						}
 					} catch { /* label stays tool name */ }
-					const idx = activity.push({
+					if (!msg.timeline) msg.timeline = [];
+					msg.timeline.push({
+						kind: 'tool',
 						node: event.node ?? 'agent',
-						tool: label,
+						label,
 						args: (event.tool_args ?? '').slice(0, 100),
 						status: 'running',
-						subagent: label.startsWith('dispatch → ') ? label.slice('dispatch → '.length) : undefined
-					}) - 1;
+						subagent
+					});
 					// Dispatch started: poll the subagent transcript for the panel
-					if (activity[idx].subagent && tid) {
-						runningDispatch = { idx, subagent: activity[idx].subagent! };
-						startPolling(tid, runningDispatch.subagent);
+					if (subagent && tid) {
+						runningDispatch = { subagent };
+						startPolling(tid, subagent);
 					}
 				} else if (event.type === 'tool_result') {
-					// Close the most recent running entry (tool results arrive in order)
-					let closeIdx = -1;
-					for (let i = activity.length - 1; i >= 0; i--) {
-						if (activity[i].status === 'running') {
-							closeIdx = i;
-							break;
-						}
-					}
-					if (closeIdx >= 0) {
-						activity[closeIdx].status = 'done';
-						activity[closeIdx].result = (event.tool_result ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
+					// Close the most recent running tool entry (results arrive in order)
+					const open = [...(msg.timeline ?? [])]
+						.reverse()
+						.find((e) => e.kind === 'tool' && e.status === 'running');
+					if (open) {
+						open.status = 'done';
+						open.result = (event.tool_result ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
 						// Dispatch finished: stop polling, fetch the final transcript
-						if (runningDispatch?.idx === closeIdx) {
+						if (runningDispatch && open.subagent === runningDispatch.subagent) {
 							const { subagent } = runningDispatch;
 							stopPolling();
 							fetchTranscript(tid, subagent).then((text) => {
@@ -169,19 +189,24 @@
 						}
 					}
 				} else if (event.type === 'message' && event.content) {
-					pendingContent += event.content;
-					updateMessage(assistantId, pendingContent);
+					tlAppendText(msg, 'text', event.content);
+					msg.content += event.content; // keep content in sync for history compat
 				} else if (event.type === 'context') {
 					if (typeof event.contextUsed === 'number') contextUsed = event.contextUsed;
 					if (typeof event.contextLimit === 'number') contextLimit = event.contextLimit;
 				} else if (event.type === 'error' && event.error) {
-					updateMessage(assistantId, `Error: ${event.error}`);
+					tlAppendText(msg, 'text', `Error: ${event.error}`);
+					msg.content = `Error: ${event.error}`;
 				}
 			},
 			onError: (error: Error) => {
 				console.error('Chat error:', error);
 				stopPolling();
-				updateMessage(assistantId, `Error: ${error.message}`);
+				const msg = messages.find((m) => m.id === assistantId);
+				if (msg) {
+					tlAppendText(msg, 'text', `Error: ${error.message}`);
+					msg.content = `Error: ${error.message}`;
+				}
 			},
 			onComplete: (id: string) => {
 				const msg = messages.find((m) => m.id === id);
@@ -221,7 +246,7 @@
 			<ChatHeader />
 		</div>
 		<div class="chat-messages relative min-h-0 flex-1 bg-background">
-			<MessageContainer {messages} {activity} {transcripts} />
+			<MessageContainer {messages} {transcripts} {thoughtsExpanded} {showRecovered} />
 		</div>
 		<div
 			class="chat-footer shrink-0 mt-auto bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4"

@@ -7,12 +7,29 @@
 
 import { API_URL as BASE_URL } from "$lib/constants";
 
+/**
+ * One entry in an assistant turn's chronological timeline. Live turns build
+ * this in SSE arrival order: thinking tokens, tool/dispatch lines, then the
+ * final text — so thoughts, dispatches and subagent chat render in order.
+ */
+export interface TimelineEntry {
+  kind: 'thinking' | 'text' | 'tool';
+  text?: string;        // thinking or text accumulation
+  node?: string;        // tool entries: LangGraph node that acted
+  label?: string;       // tool entries: display label ("dispatch → coder")
+  args?: string;        // tool entries: truncated JSON args
+  status?: 'running' | 'done';
+  result?: string;      // tool entries: truncated output once done
+  subagent?: string;    // dispatch target (transcript lookup key)
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   thinking?: string;
   timestamp?: Date;
+  timeline?: TimelineEntry[]; // live turns only; history messages use thinking/content
 }
 
 export interface StreamEvent {
@@ -33,16 +50,6 @@ export interface ChatMessageResponse {
   messages: ChatMessage[];
   status: string;
   context?: { used: number; limit: number } | null;
-}
-
-/** One line in the live activity feed (tool calls + results while streaming). */
-export interface ActivityItem {
-  node: string;        // LangGraph node that acted (model = orchestrator)
-  tool: string;        // display label; task dispatches render as "dispatch → coder"
-  args: string;        // truncated JSON args
-  status: 'running' | 'done';
-  result?: string;     // truncated tool output once done
-  subagent?: string;   // dispatch target (panel + transcript lookup key)
 }
 
 export interface ChatOptions {

@@ -28,6 +28,7 @@ _DEFAULTS = {
     "compaction_mode": "state_doc",
     "compaction_trigger_fraction": 0.85,
     "compaction_keep_messages": 20,
+    "thoughts_expanded": True,
 }
 
 # Validation bounds
@@ -61,6 +62,10 @@ def _validate(patch: dict) -> dict:
         if not isinstance(patch["compaction_enabled"], bool):
             raise ValueError("compaction_enabled must be a boolean")
         out["compaction_enabled"] = patch["compaction_enabled"]
+    if "thoughts_expanded" in patch:
+        if not isinstance(patch["thoughts_expanded"], bool):
+            raise ValueError("thoughts_expanded must be a boolean")
+        out["thoughts_expanded"] = patch["thoughts_expanded"]
     if "compaction_mode" in patch:
         mode = patch["compaction_mode"]
         if mode not in ("state_doc", "summary"):

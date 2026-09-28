@@ -11,6 +11,7 @@ export interface JubiSettings {
   compaction_mode: 'state_doc' | 'summary';
   compaction_trigger_fraction: number; // 0.1–0.95, % of num_ctx
   compaction_keep_messages: number;
+  thoughts_expanded: boolean; // model thoughts <details> default state
 }
 
 export async function getSettings(): Promise<JubiSettings> {

@@ -47,9 +47,12 @@
         compaction_enabled: settings.compaction_enabled,
         compaction_mode: settings.compaction_mode,
         compaction_trigger_fraction: settings.compaction_trigger_fraction,
-        compaction_keep_messages: settings.compaction_keep_messages
+        compaction_keep_messages: settings.compaction_keep_messages,
+        thoughts_expanded: settings.thoughts_expanded
       });
       saved = true; // server rebuilt the agent with the new settings
+      // ChatPage (and anything else rendering thoughts) re-fetches on this
+      window.dispatchEvent(new Event('jubi-settings-changed'));
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to save settings";
     } finally {
@@ -117,6 +120,14 @@
           <label class="checkbox-label" for="set-compaction">
             <input id="set-compaction" type="checkbox" bind:checked={settings.compaction_enabled} />
             Compact conversation when context fills up
+          </label>
+        </div>
+
+        <!-- Thoughts visibility -->
+        <div class="field">
+          <label class="checkbox-label" for="set-thoughts">
+            <input id="set-thoughts" type="checkbox" bind:checked={settings.thoughts_expanded} />
+            Expand model thoughts by default
           </label>
         </div>
 

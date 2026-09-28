@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
+	import { fade } from "svelte/transition";
 	import ChatHeader from "./ChatHeader.svelte";
 	import MessageContainer from "../../components/chat/MessageContainer.svelte";
 	import ChatFooter from "./ChatFooter.svelte";
+	import Chatbox from "../../components/chat/Chatbox.svelte";
 	import { sendMessage, fetchHistory, createThread } from "$lib/api/chat";
 	import type { ChatMessage } from "$lib/api/chat";
 	import { sessions } from "$lib/stores/sessions.svelte";
@@ -22,6 +24,11 @@
 	// we create a thread and update the URL mid-send.
 	const activeThreadId = $derived(page.url.searchParams.get('t') ?? '');
 	let lastLoaded = $state<string | null>(null);
+
+	// Landing/home view shows while the conversation is empty. Once the first
+	// message is sent (or history loads), messages.length > 0 and the normal
+	// chat layout takes over.
+	const isHome = $derived(messages.length === 0);
 
 	// Load history whenever the URL switches to a different thread
 	$effect(() => {
@@ -89,7 +96,7 @@
 				updateMessage(assistantId, `Error: ${error.message}`);
 			},
 			onComplete: (id: string) => {
-				const msg = messages.find((m) => m.id === assistantId);
+				const msg = messages.find((m) => m.id === id);
 				if (msg) msg.timestamp = new Date(); // real finish time
 				isStreaming = false;
 				streamingMsgId = null;
@@ -98,18 +105,49 @@
 		});
 	}
 </script>
+
 <div class="flex h-full w-full flex-col overflow-hidden">
-	<div class="chat-header shrink-0 text-white p-4 shadow-lg z-10">
-  		<ChatHeader />
-  	</div>
-	<div class="chat-messages relative min-h-0 flex-1 bg-background">
-  		<MessageContainer {messages} />
-	</div>
-	<div class="chat-footer shrink-0 mt-auto bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4">
-  		<ChatFooter
-			onSend={handleSendMessage}
-			disabled={isStreaming}
-			tokenUsage={contextUsed === null ? undefined : contextUsed / contextLimit * 100}
-		/>
-	</div>
+	{#if isHome}
+		<!-- Landing / Home view: centered prompt + chatbox, no header -->
+		<div class="home flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+			<div class="max-w-lg space-y-4">
+				<h1
+					class="text-3xl font-bold tracking-tight text-foreground"
+					style="font-family: var(--font-heading)"
+				>
+					What should we do?
+				</h1>
+				<p class="text-sm text-muted-foreground">
+					Type a prompt to start a new conversation, or continue an existing thread.
+				</p>
+			</div>
+			<Chatbox
+				placeholder="Ask, Search or Chat..."
+				disabled={isStreaming}
+				onSend={handleSendMessage}
+			/>
+		</div>
+	{:else}
+		<div class="chat-header shrink-0 text-white p-4 shadow-lg z-10">
+			<ChatHeader />
+		</div>
+		<div class="chat-messages relative min-h-0 flex-1 bg-background">
+			<MessageContainer {messages} />
+		</div>
+		<div
+			class="chat-footer shrink-0 mt-auto bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4"
+		>
+			<ChatFooter
+				onSend={handleSendMessage}
+				disabled={isStreaming}
+				tokenUsage={contextUsed === null ? undefined : contextUsed / contextLimit * 100}
+			/>
+		</div>
+	{/if}
 </div>
+
+<style>
+	.home :global(.chat-input) {
+		padding: 0;
+	}
+</style>

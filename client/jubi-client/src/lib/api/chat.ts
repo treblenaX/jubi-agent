@@ -42,6 +42,7 @@ export interface ActivityItem {
   args: string;        // truncated JSON args
   status: 'running' | 'done';
   result?: string;     // truncated tool output once done
+  subagent?: string;   // dispatch target (panel + transcript lookup key)
 }
 
 export interface ChatOptions {

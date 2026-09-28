@@ -20,8 +20,10 @@
 	let pendingThinking = '';
 	// Live tool-activity feed for the in-flight turn (cleared per send/thread)
 	let activity = $state<ActivityItem[]>([]);
-	// Subagent transcripts keyed by activity index (polled while a dispatch runs)
-	let transcripts = $state<Record<number, string>>({});
+	// Subagent transcripts keyed by subagent name ("coder"/"researcher").
+	// Grows live during a dispatch (polled); refetched on history load so the
+	// panel survives refresh (sandbox files persist server-side).
+	let transcripts = $state<Record<string, string>>({});
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 	let runningDispatch: { idx: number; subagent: string } | null = null;
 
@@ -33,14 +35,26 @@
 		runningDispatch = null;
 	}
 
-	function startPolling(tid: string, subagent: string, idx: number) {
+	function startPolling(tid: string, subagent: string) {
 		stopPolling();
 		const tick = async () => {
 			const text = await fetchTranscript(tid, subagent);
-			if (text !== null) transcripts[idx] = text;
+			if (text !== null) transcripts[subagent] = text;
 		};
 		void tick();
 		pollTimer = setInterval(tick, 2000);
+	}
+
+	// Recover persisted dispatch transcripts after a refresh (no live feed).
+	// Only the latest run per subagent is kept server-side (-latest.md).
+	async function loadTranscripts(tid: string) {
+		const names = ['coder', 'researcher'];
+		const found = await Promise.all(
+			names.map(async (n) => [n, await fetchTranscript(tid, n)] as const)
+		);
+		for (const [n, text] of found) {
+			if (text !== null) transcripts[n] = text;
+		}
 	}
 
 	// URL is the source of truth for the active thread (?t=<thread_id>).
@@ -71,6 +85,7 @@
 			if (history.length > 0) messages = history;
 			if (typeof used === 'number') contextUsed = used;
 			if (typeof limit === 'number') contextLimit = limit;
+			void loadTranscripts(t); // recover dispatch transcripts after refresh
 		});
 	});
 
@@ -124,12 +139,13 @@
 						node: event.node ?? 'agent',
 						tool: label,
 						args: (event.tool_args ?? '').slice(0, 100),
-						status: 'running'
+						status: 'running',
+						subagent: label.startsWith('dispatch → ') ? label.slice('dispatch → '.length) : undefined
 					}) - 1;
 					// Dispatch started: poll the subagent transcript for the panel
-					if (label.startsWith('dispatch → ') && tid) {
-						runningDispatch = { idx, subagent: label.slice('dispatch → '.length) };
-						startPolling(tid, runningDispatch.subagent, idx);
+					if (activity[idx].subagent && tid) {
+						runningDispatch = { idx, subagent: activity[idx].subagent! };
+						startPolling(tid, runningDispatch.subagent);
 					}
 				} else if (event.type === 'tool_result') {
 					// Close the most recent running entry (tool results arrive in order)
@@ -145,10 +161,10 @@
 						activity[closeIdx].result = (event.tool_result ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
 						// Dispatch finished: stop polling, fetch the final transcript
 						if (runningDispatch?.idx === closeIdx) {
-							const { subagent, idx } = runningDispatch;
+							const { subagent } = runningDispatch;
 							stopPolling();
 							fetchTranscript(tid, subagent).then((text) => {
-								if (text !== null) transcripts[idx] = text;
+								if (text !== null) transcripts[subagent] = text;
 							});
 						}
 					}

@@ -102,13 +102,24 @@
               <span class="args">{a.args}</span>
             {/if}
           </div>
-          {#if transcripts?.[i]}
+          {#if a.subagent && transcripts?.[a.subagent]}
             <!-- Subagent chat panel: polled transcript of the dispatch -->
             <details class="transcript" open={a.status === 'running'}>
               <summary>subagent chat {a.status === 'running' ? '· live' : ''}</summary>
-              <pre>{transcripts[i]}</pre>
+              <pre>{transcripts[a.subagent]}</pre>
             </details>
           {/if}
+        {/each}
+      </div>
+    {:else if transcripts && Object.keys(transcripts).length > 0}
+      <!-- Recovered dispatch transcripts after a refresh (no live feed) -->
+      <div class="activity-feed" aria-live="polite">
+        <div class="activity-title">Subagent chats · last dispatch</div>
+        {#each Object.entries(transcripts) as [name, text] (name)}
+          <details class="transcript">
+            <summary>dispatch → {name}</summary>
+            <pre>{text}</pre>
+          </details>
         {/each}
       </div>
     {/if}

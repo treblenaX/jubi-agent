@@ -16,6 +16,7 @@ from deepagents.backends import FilesystemBackend
 from app.core.config import settings
 from app.core import runtime
 from app.graph.state_doc import StateDocMiddleware
+from app.graph.transcript import SubagentTranscriptMiddleware
 
 
 # Define graph state
@@ -145,6 +146,9 @@ def build_agent(checkpointer=None):
         "tools": [read_project_file, write_project_file, edit_project_file,
                   list_project, run_shell, run_tests],
         "model": shared,  # or make_model("qwen2.5-coder:14b")
+        # Transcript capture: client polls /files/transcript/<tid>/coder while
+        # the dispatch runs (see app/graph/transcript.py)
+        "middleware": [SubagentTranscriptMiddleware("coder")],
     }
 
     researcher = {
@@ -155,6 +159,7 @@ def build_agent(checkpointer=None):
         "system_prompt": RESEARCHER_PROMPT,
         "tools": [web_search, fetch_url, read_project_file, list_project],
         "model": shared,  # or make_model("qwen3:8b", temp=0.3)
+        "middleware": [SubagentTranscriptMiddleware("researcher")],
     }
 
     # Compaction middleware (SPEC-02). Two strategies behind one trigger/keep:

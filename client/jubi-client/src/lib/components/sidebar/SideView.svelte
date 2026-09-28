@@ -3,7 +3,7 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { HugeiconsIcon } from "@hugeicons/svelte";
-  import { PlusSignIcon, Cancel01Icon, SettingsIcon, NetworkIcon } from "@hugeicons/core-free-icons";
+  import { PlusSignIcon, Cancel01Icon, SettingsIcon, NetworkIcon, Wrench01Icon } from "@hugeicons/core-free-icons";
   import { API_URL } from "$lib/constants";
   import { sessions } from "$lib/stores/sessions.svelte";
   import { deleteThread } from "$lib/api/chat";
@@ -132,6 +132,17 @@
       >
         <HugeiconsIcon icon={NetworkIcon} size={20} strokeWidth={1.5} class="h-5 w-5" />
         <span>Agents</span>
+      </button>
+    </div>
+
+    <!-- Tools -->
+    <div class="px-4 pt-4">
+      <button
+        class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        onclick={() => goto('/tools')}
+      >
+        <HugeiconsIcon icon={Wrench01Icon} size={20} strokeWidth={1.5} class="h-5 w-5" />
+        <span>Tools</span>
       </button>
     </div>
 

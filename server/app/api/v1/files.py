@@ -12,11 +12,15 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from typing import Optional
 import os
+import re
 import shutil
 import time
 import uuid
 
 router = APIRouter()
+
+# Path-segment whitelist for the transcript endpoint (no traversal)
+_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def get_sandbox_path(thread_id: str) -> str:
@@ -243,6 +247,23 @@ async def delete_file(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/transcript/{thread_id}/{subagent}")
+async def get_transcript(thread_id: str, subagent: str):
+    """
+    Fetch a subagent's latest run transcript.
+
+    Serves /tmp/jubi-sandbox/<thread_id>/transcripts/<subagent>-latest.md,
+    which grows while the dispatch runs — the client polls this endpoint to
+    render a near-live "subagent chat" panel under the dispatch activity line.
+    """
+    if not _NAME_RE.fullmatch(thread_id) or not _NAME_RE.fullmatch(subagent):
+        raise HTTPException(status_code=400, detail="Invalid thread or agent name")
+    path = os.path.join("/tmp/jubi-sandbox", thread_id, "transcripts", f"{subagent}-latest.md")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No transcript yet")
+    return FileResponse(path, media_type="text/markdown; charset=utf-8")
 
 
 @router.post("/sandbox/cleanup")

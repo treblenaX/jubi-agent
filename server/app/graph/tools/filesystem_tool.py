@@ -204,8 +204,8 @@ def list_project(glob_pattern: Optional[str] = None) -> List[Dict[str, Any]]:
             }
             files.append(info)
         
-        # Sort by modification time (newest first)
-        files.sort(key=lambda x: x.get("modified", 0), reverse=True)
+        # Sort by modification time (newest first); dirs have no mtime -> 0
+        files.sort(key=lambda x: x.get("modified") or 0, reverse=True)
         
         return files
         

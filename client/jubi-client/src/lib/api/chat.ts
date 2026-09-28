@@ -35,6 +35,15 @@ export interface ChatMessageResponse {
   context?: { used: number; limit: number } | null;
 }
 
+/** One line in the live activity feed (tool calls + results while streaming). */
+export interface ActivityItem {
+  node: string;        // LangGraph node that acted (model = orchestrator)
+  tool: string;        // display label; task dispatches render as "dispatch → coder"
+  args: string;        // truncated JSON args
+  status: 'running' | 'done';
+  result?: string;     // truncated tool output once done
+}
+
 export interface ChatOptions {
   threadId?: string;
   onEvent: (event: StreamEvent) => void;
@@ -46,6 +55,11 @@ export interface ChatOptions {
  * Normalize LangGraph stream updates to our StreamEvent format
  */
 function normalizeEvent(update: Record<string, any>): StreamEvent {
+  // Stream-level failure from the server generator ({"error": "..."})
+  if (update.error) {
+    return { type: 'error', error: String(update.error) };
+  }
+
   // Live thinking delta (token-level, from the "messages" stream mode)
   if (update.thinking !== undefined) {
     return { type: 'message', content: '', thinking: update.thinking };
@@ -68,31 +82,28 @@ function normalizeEvent(update: Record<string, any>): StreamEvent {
     
     const messages = payload.messages || [];
     for (const msg of messages) {
-      if (!msg || (!msg.content && !msg.thinking)) continue;
+      if (!msg) continue;
+      const kind = msg.type || 'ai';
+      const isToolCall = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+      const content = typeof msg.content === 'string' ? msg.content : '';
+      // AI messages can be tool-call-only (empty content) — don't skip those
+      if (!isToolCall && kind !== 'tool' && !content && !msg.thinking) continue;
       if (msg.thinking) event.thinking = msg.thinking;
       
-      // Determine event type based on message properties
-      const kind = msg.type || 'ai';
-      const isToolCall = Array.isArray(msg.tool_calls);
-      const isError = msg.content.startsWith('Error') || msg.content.includes('error');
-      
-      if (isError) {
-        event.type = 'error';
-        event.error = msg.content;
-      } else if (isToolCall) {
+      if (isToolCall) {
         event.type = 'tool_call';
         event.node = node;
-        for (const tc of msg.tool_calls) {
-          event.tool_name = tc.name;
-          event.tool_args = JSON.stringify(tc.args);
-        }
+        const tc = msg.tool_calls[0];
+        event.tool_name = tc.name;
+        event.tool_args = JSON.stringify(tc.args);
+      } else if (kind === 'tool') {
+        // Tool execution result (raw output — truncated by the consumer)
+        event.type = 'tool_result';
+        event.node = node;
+        event.tool_result = content;
       } else if (kind === 'ai') {
         event.type = 'message';
-        event.content = msg.content;
-        event.node = node;
-      } else if (msg.content.startsWith('Result:')) {
-        event.type = 'tool_result';
-        event.tool_result = msg.content.replace('Result:', '').trim();
+        event.content = content;
         event.node = node;
       }
       
@@ -118,7 +129,9 @@ export async function fetchHistory(
     });
     if (!res.ok) return { messages: [] };
     const data: ChatMessageResponse = await res.json();
-    const messages = (data.messages || []).map((m: any) => ({
+    const messages = (data.messages || [])
+      .filter((m: any) => m.type !== 'tool') // tool output lives in the activity feed, not the transcript
+      .map((m: any) => ({
       id: m.id || crypto.randomUUID(),
       role: (m.role || (m.type === 'human' ? 'user' : 'assistant')) as 'user' | 'assistant',
       content: m.content || '',
@@ -151,6 +164,26 @@ export async function createThread(): Promise<string> {
   }
   const data = await res.json();
   return data.thread_id;
+}
+
+/**
+ * Fetch a subagent's latest run transcript (near-live dispatch panel).
+ * Returns null while no transcript exists yet (404) or on any fetch error —
+ * callers poll this, so silence is the correct "not ready" signal.
+ */
+export async function fetchTranscript(
+  threadId: string,
+  subagent: string
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/transcript/${encodeURIComponent(threadId)}/${encodeURIComponent(subagent)}`
+    );
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
 }
 
 /**

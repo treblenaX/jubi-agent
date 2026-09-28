@@ -2,10 +2,18 @@
   import * as Message from "$lib/components/ui/message";
   import * as Bubble from "$lib/components/ui/bubble";
   import { renderMarkdown } from "$lib/utils/markdown";
-  import type { ChatMessage } from "$lib/api/chat";
+  import type { ChatMessage, ActivityItem } from "$lib/api/chat";
 
-  // Presentational: messages are owned by ChatPage
-  let { messages }: { messages: ChatMessage[] } = $props();
+  // Presentational: messages + activity are owned by ChatPage
+  let {
+    messages,
+    activity,
+    transcripts
+  }: {
+    messages: ChatMessage[];
+    activity?: ActivityItem[];
+    transcripts?: Record<number, string>;
+  } = $props();
 
   // Auto-scroll: pin to bottom while streaming; don't yank if user scrolled up
   let containerEl = $state<HTMLElement | undefined>(undefined);
@@ -16,6 +24,7 @@
     const count = messages.length;
     const _lastContent = messages[count - 1]?.content ?? '';
     const _lastThinking = messages[count - 1]?.thinking ?? ''; // thinking growth also retriggers scroll
+    const _activityCount = activity?.length ?? 0; // activity lines also retrigger scroll
     const el = containerEl;
     if (!el) return;
 
@@ -75,10 +84,112 @@
         </Message.Root>
       {/each}
     {/if}
+
+    <!-- Live tool-activity feed for the in-flight turn -->
+    {#if activity && activity.length > 0}
+      <div class="activity-feed" aria-live="polite">
+        <div class="activity-title">Activity</div>
+        {#each activity as a, i (i)}
+          <div class="activity-line">
+            <span class="glyph" class:running={a.status === 'running'}>
+              {a.status === 'running' ? '▸' : '✓'}
+            </span>
+            <span class="node">{a.node}</span>
+            <span class="tool">{a.tool}</span>
+            {#if a.result}
+              <span class="result">→ {a.result}</span>
+            {:else if a.args}
+              <span class="args">{a.args}</span>
+            {/if}
+          </div>
+          {#if transcripts?.[i]}
+            <!-- Subagent chat panel: polled transcript of the dispatch -->
+            <details class="transcript" open={a.status === 'running'}>
+              <summary>subagent chat {a.status === 'running' ? '· live' : ''}</summary>
+              <pre>{transcripts[i]}</pre>
+            </details>
+          {/if}
+        {/each}
+      </div>
+    {/if}
   </div>
 </div>
 
 <style>
+  /* Live activity feed: one monospace line per tool call/result */
+  .activity-feed {
+    display: grid;
+    gap: 0.25rem;
+    padding-left: 0.625rem;
+    border-left: 2px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--muted-foreground);
+  }
+  .activity-title {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+  }
+  .activity-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .glyph {
+    color: var(--constructive);
+  }
+  .glyph.running {
+    color: var(--primary);
+    animation: activity-pulse 1.2s ease-in-out infinite;
+  }
+  .node {
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+  .tool {
+    color: var(--foreground);
+    flex-shrink: 0;
+  }
+  .args,
+  .result {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 30rem;
+  }
+  /* Subagent chat panel under a dispatch line */
+  .transcript {
+    margin: 0.15rem 0 0.35rem 1.35rem;
+  }
+  .transcript summary {
+    cursor: pointer;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+    user-select: none;
+  }
+  .transcript pre {
+    margin: 0.35rem 0 0;
+    padding: 0.375rem 0.625rem;
+    max-height: 16rem;
+    overflow-y: auto;
+    border-left: 2px solid var(--border);
+    font-size: 0.68rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--muted-foreground);
+  }
+  @keyframes activity-pulse {
+    50% {
+      opacity: 0.25;
+    }
+  }
+
   .thinking-block summary {
     cursor: pointer;
     font-size: 0.75rem;

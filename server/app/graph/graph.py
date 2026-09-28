@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core import runtime
 from app.graph.state_doc import StateDocMiddleware
 from app.graph.transcript import SubagentTranscriptMiddleware
+from app.graph.project_context import ProjectContextMiddleware
 
 
 # Define graph state
@@ -148,7 +149,7 @@ def build_agent(checkpointer=None):
         "model": shared,  # or make_model("qwen2.5-coder:14b")
         # Transcript capture: client polls /files/transcript/<tid>/coder while
         # the dispatch runs (see app/graph/transcript.py)
-        "middleware": [SubagentTranscriptMiddleware("coder")],
+        "middleware": [SubagentTranscriptMiddleware("coder"), ProjectContextMiddleware()],
     }
 
     researcher = {
@@ -159,7 +160,7 @@ def build_agent(checkpointer=None):
         "system_prompt": RESEARCHER_PROMPT,
         "tools": [web_search, fetch_url, read_project_file, list_project],
         "model": shared,  # or make_model("qwen3:8b", temp=0.3)
-        "middleware": [SubagentTranscriptMiddleware("researcher")],
+        "middleware": [SubagentTranscriptMiddleware("researcher"), ProjectContextMiddleware()],
     }
 
     # Compaction middleware (SPEC-02). Two strategies behind one trigger/keep:
@@ -172,11 +173,13 @@ def build_agent(checkpointer=None):
     # fractional triggers require model profile metadata ChatOllama lacks.
     rs = runtime.get()
     backend = FilesystemBackend(root_dir=settings.SANDBOX_ROOT)
-    middleware = ()
+    # Project context (title + description) pinned into the system prompt when
+    # the thread belongs to a project; compaction middleware per settings.
+    middleware = (ProjectContextMiddleware(),)
     if rs["compaction_enabled"]:
         trigger_tokens = int(rs["compaction_trigger_fraction"] * rs["num_ctx"])
         if rs.get("compaction_mode", "state_doc") == "summary":
-            middleware = (
+            middleware = middleware + (
                 SummarizationMiddleware(
                     model=shared,
                     backend=backend,
@@ -185,7 +188,7 @@ def build_agent(checkpointer=None):
                 ),
             )
         else:
-            middleware = (
+            middleware = middleware + (
                 StateDocMiddleware(
                     model=shared,
                     backend=backend,

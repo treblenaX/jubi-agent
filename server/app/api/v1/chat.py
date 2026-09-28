@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from typing import Optional, Any
 import sqlite3
 import time
@@ -40,6 +41,11 @@ _META_DB = "harness.db"
 _DISPATCH_LOG = Path(__file__).resolve().parents[3] / "logs" / "dispatch.jsonl"
 
 
+class ThreadCreate(BaseModel):
+    """Optional body for POST /threads (create a thread inside a project)."""
+    project_id: Optional[str] = None
+
+
 @contextmanager
 def _meta_conn():
     conn = sqlite3.connect(_META_DB, timeout=10)
@@ -60,6 +66,20 @@ def _meta_conn():
                 PRIMARY KEY (thread_id, message_id)
             )"""
         )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS projects (
+                project_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        # Migration: threads may belong to a project (nullable link)
+        try:
+            conn.execute("ALTER TABLE threads ADD COLUMN project_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         with conn:
             yield conn
     finally:
@@ -321,6 +341,20 @@ async def _stream_chat(
         "recursion_limit": 200,
     }
 
+    # Project context: if the thread belongs to a project, pin its title +
+    # description into every agent's system prompt (ProjectContextMiddleware).
+    try:
+        from app.api.v1.projects import get_project_for_thread
+
+        project = get_project_for_thread(thread_id)
+        if project and (project.get("description") or project.get("title")):
+            config["configurable"]["project_context"] = (
+                f"## Active project: {project.get('title', 'Untitled')}\n"
+                f"{project.get('description', '')}".strip()
+            )
+    except Exception:
+        pass  # context injection must never break chat
+
     # Stream response from LangGraph.
     # Sync generator on purpose: Starlette iterates it in a threadpool, which
     # keeps the event loop free AND is compatible with the sync SqliteSaver.
@@ -416,16 +450,36 @@ async def get_messages(thread_id: Optional[str] = None):
 
 
 @router.post("/threads")
-async def create_thread():
+async def create_thread(body: Optional[ThreadCreate] = None):
     """
-    Create a new conversation thread.
+    Create a new conversation thread, optionally inside a project.
 
     Returns:
         Thread ID and status
     """
     thread_id = f"thread-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    project_id = body.project_id if body else None
+    if project_id:
+        from app.api.v1.projects import get_project
+
+        if get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        try:
+            with _meta_conn() as conn:
+                # The threads row is otherwise created lazily on first message
+                # (_upsert_thread_meta); insert eagerly so the project link
+                # lands before any chat happens.
+                conn.execute(
+                    "INSERT OR IGNORE INTO threads (thread_id, title, created_at, updated_at, project_id)"
+                    " VALUES (?, '', ?, ?, ?)",
+                    (thread_id, datetime.now(timezone.utc).isoformat(),
+                     datetime.now(timezone.utc).isoformat(), project_id),
+                )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
     return {
         "thread_id": thread_id,
+        "project_id": project_id,
         "status": "created"
     }
 
@@ -450,16 +504,26 @@ async def delete_thread(thread_id: str):
 
 
 @router.get("/threads")
-async def list_threads():
+async def list_threads(project_id: Optional[str] = None):
     """
-    List all conversation threads (most recently updated first).
+    List conversation threads (most recently updated first).
+
+    Args:
+        project_id: Optional filter to only threads belonging to a project.
     """
     try:
         with _meta_conn() as conn:
-            rows = conn.execute(
-                """SELECT thread_id, title, created_at, updated_at
-                   FROM threads ORDER BY updated_at DESC"""
-            ).fetchall()
+            if project_id:
+                rows = conn.execute(
+                    """SELECT thread_id, title, created_at, updated_at, project_id
+                       FROM threads WHERE project_id = ? ORDER BY updated_at DESC""",
+                    (project_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT thread_id, title, created_at, updated_at, project_id
+                       FROM threads ORDER BY updated_at DESC"""
+                ).fetchall()
         return {
             "threads": [
                 {
@@ -467,6 +531,7 @@ async def list_threads():
                     "title": r[1],
                     "created_at": r[2],
                     "updated_at": r[3],
+                    "project_id": r[4],
                 }
                 for r in rows
             ]

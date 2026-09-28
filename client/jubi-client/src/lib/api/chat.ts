@@ -162,10 +162,11 @@ export async function fetchHistory(
  * Create a new conversation thread on the server (id generation only —
  * no LLM call; the metadata row is created lazily on the first message).
  */
-export async function createThread(): Promise<string> {
+export async function createThread(projectId?: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/threads`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(projectId ? { project_id: projectId } : {})
   });
   if (!res.ok) {
     throw new Error(`Failed to create thread: ${res.status}`);

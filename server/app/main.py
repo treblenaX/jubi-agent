@@ -21,6 +21,7 @@ if '/home/ec/.nanobot/workspace/jubi/server' not in sys.path:
 
 from app.api.v1.chat import router as chat_router
 from app.api.v1.files import router as files_router
+from app.api.v1.projects import router as projects_router
 from app.api.v1.settings import router as settings_router
 from app.core.config import settings
 from app.core import runtime
@@ -74,6 +75,7 @@ def create_application() -> FastAPI:
     # Include API routes (no /v1 prefix - routes at /chat, /files, /settings)
     app.include_router(chat_router)  # Routes will be at /chat/*
     app.include_router(files_router)  # Routes will be at /files/*
+    app.include_router(projects_router)  # Routes will be at /projects/*
     app.include_router(settings_router)  # Routes will be at /settings, /models
     
     # Add custom middleware for logging

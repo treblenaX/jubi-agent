@@ -3,10 +3,12 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { HugeiconsIcon } from "@hugeicons/svelte";
-  import { PlusSignIcon, Cancel01Icon, SettingsIcon, NetworkIcon, Wrench01Icon } from "@hugeicons/core-free-icons";
+  import { PlusSignIcon, Cancel01Icon, SettingsIcon, NetworkIcon, Wrench01Icon, FolderIcon } from "@hugeicons/core-free-icons";
   import { API_URL } from "$lib/constants";
   import { sessions } from "$lib/stores/sessions.svelte";
+  import { projects } from "$lib/stores/projects.svelte";
   import { deleteThread } from "$lib/api/chat";
+  import { deleteProject } from "$lib/api/projects";
   import SettingsPanel from "$lib/components/settings/SettingsPanel.svelte";
 
   let { children } = $props();
@@ -19,6 +21,8 @@
 
   // Active thread comes from the URL (?t=<thread_id>) — same source as ChatPage
   const activeThreadId = $derived(page.url.searchParams.get('t') ?? '');
+  // Active project comes from the URL path (/projects/<id>)
+  const activeProjectId = $derived(page.url.pathname.match(/^\/projects\/([^/]+)/)?.[1] ?? '');
 
   async function checkConnection() {
     try {
@@ -58,9 +62,21 @@
     }
   }
 
+  async function handleDeleteProject(event: MouseEvent, projectId: string) {
+    event.stopPropagation();
+    try {
+      await deleteProject(projectId); // server: threads survive, link cleared
+      projects.remove(projectId);
+      if (projectId === activeProjectId) goto('/');
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+    }
+  }
+
   onMount(() => {
     checkConnection();
     sessions.refresh();
+    projects.refresh();
     const interval = setInterval(checkConnection, 10000);
     return () => clearInterval(interval);
   });
@@ -157,8 +173,20 @@
       </button>
     </div>
 
-    <!-- Session List -->
+    <!-- New Project -->
+    <div class="px-4 pt-2">
+      <button
+        class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        onclick={() => goto('/projects/new')}
+      >
+        <HugeiconsIcon icon={FolderIcon} size={20} strokeWidth={1.5} class="h-5 w-5" />
+        <span>New Project</span>
+      </button>
+    </div>
+
+    <!-- Session + Project Lists -->
     <nav class="flex-1 space-y-1 px-4 py-4 overflow-y-auto">
+      <div class="section-label">Chats</div>
       {#each sessions.list as session (session.thread_id)}
         <div
           class={`group relative flex items-center rounded-md text-sm transition-colors ${
@@ -185,6 +213,35 @@
       {:else}
         <p class="px-3 py-2 text-xs text-muted-foreground">No sessions yet</p>
       {/each}
+
+      <div class="section-label pt-3">Projects</div>
+      {#each projects.list as project (project.project_id)}
+        <div
+          class={`group relative flex items-center rounded-md text-sm transition-colors ${
+            project.project_id === activeProjectId
+              ? 'bg-accent text-accent-foreground'
+              : 'text-muted-foreground hover:bg-accent/50'
+          }`}
+        >
+          <button
+            class="flex flex-1 items-center gap-2 truncate px-3 py-2 text-left font-medium"
+            title={project.description || project.title}
+            onclick={() => goto(`/projects/${project.project_id}`)}
+          >
+            <HugeiconsIcon icon={FolderIcon} size={14} strokeWidth={1.5} class="shrink-0 opacity-70" />
+            <span class="truncate">{project.title}</span>
+          </button>
+          <button
+            class="absolute right-1.5 rounded p-1 opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+            aria-label={`Delete project: ${project.title}`}
+            onclick={(e) => handleDeleteProject(e, project.project_id)}
+          >
+            <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.5} />
+          </button>
+        </div>
+      {:else}
+        <p class="px-3 py-2 text-xs text-muted-foreground">No projects yet</p>
+      {/each}
     </nav>
 
     <!-- Settings -->
@@ -205,6 +262,15 @@
 </div>
 
 <style>
+  /* Sidebar section labels (Chats / Projects) */
+  .section-label {
+    padding: 0 0.75rem 0.25rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+  }
+
   /* Modal styles (previously lived in a deleted external css file) */
   .modal-overlay {
     position: fixed;

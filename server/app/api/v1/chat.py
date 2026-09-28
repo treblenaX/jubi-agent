@@ -9,6 +9,7 @@ This module:
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -31,6 +32,12 @@ _ROLE_MAP = {"human": "user", "ai": "assistant", "tool": "tool"}
 # separate lightweight table (checkpoints is a serde blob — not queryable
 # for sidebar listings). Rows are created lazily on the first chat message.
 _META_DB = "harness.db"
+
+# Append-only dispatch log: one JSON line per tool call observed in the
+# stream. Ground truth for "did the orchestrator actually delegate": a
+# `task` tool call naming a subagent is a dispatch; its absence means the
+# orchestrator acted alone. Also captures per-call token usage.
+_DISPATCH_LOG = Path(__file__).resolve().parents[3] / "logs" / "dispatch.jsonl"
 
 
 @contextmanager
@@ -147,6 +154,12 @@ def _serialize_message(m: Any, timestamp: Optional[str] = None,
             {"name": tc.get("name", ""), "args": tc.get("args", {})}
             for tc in tool_calls
         ]
+    um = getattr(m, "usage_metadata", None)
+    if um:
+        try:
+            out["usage"] = dict(um)
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -172,6 +185,40 @@ def _context_usage(config: dict) -> Optional[dict]:
         return {"used": used, "limit": runtime.get()["num_ctx"]}
     except Exception:
         return None
+
+
+def _log_dispatch(thread_id: str, payload: dict) -> None:
+    """Append every tool call in a stream update to logs/dispatch.jsonl.
+
+    Best-effort: logging must never break chat. Args are truncated — the
+    log answers "was tool X called on node Y", not full replay.
+    """
+    try:
+        rows = []
+        for node, p in payload.items():
+            if not isinstance(p, dict):
+                continue
+            for m in p.get("messages", []):
+                if not isinstance(m, dict):
+                    continue
+                usage = m.get("usage") or {}
+                for tc in m.get("tool_calls") or []:
+                    rows.append({
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "thread_id": thread_id,
+                        "node": node,
+                        "tool": tc.get("name"),
+                        "args": json.dumps(tc.get("args", {}), default=str)[:300],
+                        "input_tokens": usage.get("input_tokens"),
+                    })
+        if not rows:
+            return
+        _DISPATCH_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with _DISPATCH_LOG.open("a") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+    except Exception:
+        pass
 
 
 def _serialize_update(update: dict) -> dict:
@@ -293,6 +340,7 @@ async def _stream_chat(
                         yield f"data: {json.dumps({'thinking': rc})}\n\n"
                     continue
                 payload = _serialize_update(data)
+                _log_dispatch(thread_id, payload)
                 # Stamp assistant messages as they are emitted (best-effort)
                 try:
                     _stamp_messages(thread_id, [

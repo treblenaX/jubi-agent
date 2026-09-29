@@ -72,12 +72,18 @@ def _meta_conn():
                 title TEXT NOT NULL DEFAULT '',
                 description TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                workspace_path TEXT
             )"""
         )
         # Migration: threads may belong to a project (nullable link)
         try:
             conn.execute("ALTER TABLE threads ADD COLUMN project_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # Migration: projects may pin a workspace path (tool-action jail)
+        try:
+            conn.execute("ALTER TABLE projects ADD COLUMN workspace_path TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
         with conn:
@@ -343,15 +349,26 @@ async def _stream_chat(
 
     # Project context: if the thread belongs to a project, pin its title +
     # description into every agent's system prompt (ProjectContextMiddleware).
+    # A project workspace_path (when set) is enforced by
+    # WorkspaceSandboxMiddleware: filesystem/shell tool calls are forced inside it.
     try:
         from app.api.v1.projects import get_project_for_thread
 
         project = get_project_for_thread(thread_id)
         if project and (project.get("description") or project.get("title")):
-            config["configurable"]["project_context"] = (
+            ctx = (
                 f"## Active project: {project.get('title', 'Untitled')}\n"
                 f"{project.get('description', '')}".strip()
             )
+            workspace = project.get("workspace_path")
+            if workspace:
+                ctx += (
+                    "\n\n## Project workspace\n"
+                    f"All file reads/writes/edits and shell commands MUST stay inside: {workspace}\n"
+                    "Tool paths are resolved relative to this workspace. Never touch files outside it."
+                )
+                config["configurable"]["workspace_path"] = workspace
+            config["configurable"]["project_context"] = ctx
     except Exception:
         pass  # context injection must never break chat
 

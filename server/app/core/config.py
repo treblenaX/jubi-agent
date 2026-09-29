@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Sandbox Configuration
     SANDBOX_ROOT: str = "/tmp/jubi-sandbox/"
     MAX_SANDBOX_SIZE_MB: int = 100
+    PROJECT_WORKSPACE_PATH: Optional[str] = None  # Optional workspace path to restrict tool actions for projects
     
     # API Configuration
     API_HOST: str = "127.0.0.1"

@@ -6,6 +6,8 @@
 	import { getProject, updateProject, deleteProject, type ProjectInfo, type ProjectThread } from "$lib/api/projects";
 	import { createThread } from "$lib/api/chat";
 	import { projects } from "$lib/stores/projects.svelte";
+	import { sessions } from "$lib/stores/sessions.svelte";
+	import WorkspaceField from "$lib/components/WorkspaceField.svelte";
 
 	// URL is the source of truth: /projects/<id>
 	const projectId = $derived(page.params.id ?? '');
@@ -20,6 +22,7 @@
 	let editing = $state(false);
 	let editTitle = $state('');
 	let editDescription = $state('');
+	let editWorkspace = $state('');
 	let saving = $state(false);
 
 	async function load() {
@@ -48,6 +51,7 @@
 		if (!project) return;
 		editTitle = project.title;
 		editDescription = project.description;
+		editWorkspace = project.workspace_path ?? '';
 		editing = true;
 	}
 
@@ -57,7 +61,8 @@
 		try {
 			await updateProject(project.project_id, {
 				title: editTitle.trim(),
-				description: editDescription.trim()
+				description: editDescription.trim(),
+				workspace_path: editWorkspace.trim() || null
 			});
 			editing = false;
 			await load();
@@ -84,6 +89,7 @@
 		if (!project) return;
 		try {
 			const tid = await createThread(project.project_id);
+			await sessions.refresh(); // sidebar tree picks up the new chat
 			await goto(`/?t=${tid}`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to create chat';
@@ -159,6 +165,7 @@
 						class="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring"
 					></textarea>
 				</div>
+				<WorkspaceField bind:value={editWorkspace} />
 				<div class="flex gap-2">
 					<button
 						type="submit"
@@ -185,6 +192,12 @@
 				<p class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
 					{project.description || 'No description yet — click Edit to add one so the agents know what this project is for.'}
 				</p>
+				{#if project.workspace_path}
+					<div class="mt-3 border-t border-border pt-3">
+						<div class="text-[0.65rem] uppercase tracking-[0.06em] text-muted-foreground">Workspace · tool actions jailed to</div>
+						<p class="mt-1 font-mono text-xs text-foreground">{project.workspace_path}</p>
+					</div>
+				{/if}
 			</div>
 		{/if}
 

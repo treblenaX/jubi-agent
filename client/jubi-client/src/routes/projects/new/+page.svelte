@@ -2,9 +2,11 @@
 	import { goto } from "$app/navigation";
 	import { createProject } from "$lib/api/projects";
 	import { projects } from "$lib/stores/projects.svelte";
+	import WorkspaceField from "$lib/components/WorkspaceField.svelte";
 
 	let title = $state('');
 	let description = $state('');
+	let workspacePath = $state('');
 	let saving = $state(false);
 	let error = $state('');
 
@@ -14,7 +16,7 @@
 		saving = true;
 		error = '';
 		try {
-			const projectId = await createProject(title.trim(), description.trim());
+			const projectId = await createProject(title.trim(), description.trim(), workspacePath);
 			await projects.refresh(); // sidebar picks up the new project
 			await goto(`/projects/${projectId}`);
 		} catch (err) {
@@ -57,6 +59,7 @@
 				This description is pinned into the agents' system prompts in every chat of this project.
 			</p>
 		</div>
+		<WorkspaceField bind:value={workspacePath} />
 		{#if error}
 			<p class="text-sm text-destructive">{error}</p>
 		{/if}

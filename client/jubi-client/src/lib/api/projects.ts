@@ -11,6 +11,7 @@ export interface ProjectInfo {
   description: string;
   created_at: string;
   updated_at: string;
+  workspace_path?: string | null;
   thread_count?: number;
 }
 
@@ -27,11 +28,15 @@ export async function listProjects(): Promise<ProjectInfo[]> {
   return (await res.json()).projects ?? [];
 }
 
-export async function createProject(title: string, description: string): Promise<string> {
+export async function createProject(
+  title: string,
+  description: string,
+  workspacePath: string = ''
+): Promise<string> {
   const res = await fetch(`${BASE_URL}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, description })
+    body: JSON.stringify({ title, description, workspace_path: workspacePath || null })
   });
   if (!res.ok) throw new Error(`Failed to create project: ${res.status}`);
   return (await res.json()).project_id;
@@ -47,7 +52,7 @@ export async function getProject(
 
 export async function updateProject(
   projectId: string,
-  patch: { title?: string; description?: string }
+  patch: { title?: string; description?: string; workspace_path?: string | null }
 ): Promise<void> {
   const res = await fetch(`${BASE_URL}/projects/${encodeURIComponent(projectId)}`, {
     method: 'PUT',

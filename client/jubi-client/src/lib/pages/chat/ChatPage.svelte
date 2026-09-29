@@ -6,6 +6,7 @@
 	import MessageContainer from "../../components/chat/MessageContainer.svelte";
 	import ChatFooter from "./ChatFooter.svelte";
 	import Chatbox from "../../components/chat/Chatbox.svelte";
+	import DispatchPanel from "../../components/chat/DispatchPanel.svelte";
 	import { sendMessage, fetchHistory, createThread, fetchTranscript, type ChatMessage, type TimelineEntry } from "$lib/api/chat";
 	import { getSettings } from "$lib/api/settings";
 	import { sessions } from "$lib/stores/sessions.svelte";
@@ -21,7 +22,12 @@
 	// panel survives refresh (sandbox files persist server-side).
 	let transcripts = $state<Record<string, string>>({});
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
-	let runningDispatch: { subagent: string } | null = null;
+	let runningDispatch = $state<{ subagent: string } | null>(null);
+	// Per-subagent dispatch metadata for the dispatch panel + activity lines:
+	// when the dispatch started (epoch ms) and whether it is still running.
+	let dispatchMeta = $state<Record<string, { ts: number; running: boolean }>>({});
+	// Right-side dispatch panel (toggle: header icon or Ctrl+G)
+	let dispatchPanelOpen = $state(false);
 	// Thoughts <details> default state (settings → thoughts_expanded)
 	let thoughtsExpanded = $state(true);
 	// True once a live turn happened this page-session; the recovered
@@ -49,6 +55,10 @@
 
 	function startPolling(tid: string, subagent: string) {
 		stopPolling();
+		// Set AFTER stopPolling — it nulls runningDispatch. (Pre-existing bug:
+		// the caller used to set it before startPolling, so the dispatch-finish
+		// branch in tool_result never saw it and never ran.)
+		runningDispatch = { subagent };
 		const tick = async () => {
 			const text = await fetchTranscript(tid, subagent);
 			if (text !== null) transcripts[subagent] = text;
@@ -92,6 +102,7 @@
 		contextUsed = null;
 		streamingMsgId = null;
 		transcripts = {};
+		dispatchMeta = {};
 		liveTurnHappened = false;
 		stopPolling();
 		if (!t) return;
@@ -158,18 +169,20 @@
 						}
 					} catch { /* label stays tool name */ }
 					if (!msg.timeline) msg.timeline = [];
+					const ts = Date.now();
 					msg.timeline.push({
 						kind: 'tool',
 						node: event.node ?? 'agent',
 						label,
 						args: (event.tool_args ?? '').slice(0, 100),
 						status: 'running',
-						subagent
+						subagent,
+						ts
 					});
 					// Dispatch started: poll the subagent transcript for the panel
 					if (subagent && tid) {
-						runningDispatch = { subagent };
-						startPolling(tid, subagent);
+						dispatchMeta[subagent] = { ts, running: true };
+						startPolling(tid, subagent); // also sets runningDispatch
 					}
 				} else if (event.type === 'tool_result') {
 					// Close the most recent running tool entry (results arrive in order)
@@ -182,6 +195,7 @@
 						// Dispatch finished: stop polling, fetch the final transcript
 						if (runningDispatch && open.subagent === runningDispatch.subagent) {
 							const { subagent } = runningDispatch;
+							if (dispatchMeta[subagent]) dispatchMeta[subagent].running = false;
 							stopPolling();
 							fetchTranscript(tid, subagent).then((text) => {
 								if (text !== null) transcripts[subagent] = text;
@@ -218,6 +232,17 @@
 			}
 		});
 	}
+	// Ctrl+G (or Cmd+G) toggles the dispatch panel
+	$effect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+				e.preventDefault(); // browser find-next
+				dispatchPanelOpen = !dispatchPanelOpen;
+			}
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
 </script>
 
 <div class="flex h-full w-full flex-col overflow-hidden">
@@ -243,10 +268,20 @@
 		</div>
 	{:else}
 		<div class="chat-header shrink-0 text-white p-4 shadow-lg z-10">
-			<ChatHeader />
+			<ChatHeader
+				dispatchOpen={dispatchPanelOpen}
+				dispatchRunning={!!runningDispatch}
+				onToggleDispatch={() => (dispatchPanelOpen = !dispatchPanelOpen)}
+			/>
 		</div>
 		<div class="chat-messages relative min-h-0 flex-1 bg-background">
 			<MessageContainer {messages} {transcripts} {thoughtsExpanded} {showRecovered} />
+			<DispatchPanel
+				open={dispatchPanelOpen}
+				{transcripts}
+				{dispatchMeta}
+				onClose={() => (dispatchPanelOpen = false)}
+			/>
 		</div>
 		<div
 			class="chat-footer shrink-0 mt-auto bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4"

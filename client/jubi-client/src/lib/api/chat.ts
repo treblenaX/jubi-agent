@@ -21,6 +21,7 @@ export interface TimelineEntry {
   status?: 'running' | 'done';
   result?: string;      // tool entries: truncated output once done
   subagent?: string;    // dispatch target (transcript lookup key)
+  ts?: number;          // tool entries: epoch ms when the call started
 }
 
 export interface ChatMessage {

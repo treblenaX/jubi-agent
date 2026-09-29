@@ -74,9 +74,14 @@
                   </details>
                 {:else if e.kind === 'tool'}
                   <div class="activity-line">
-                    <span class="glyph" class:running={e.status === 'running'}>
-                      {e.status === 'running' ? '▸' : '✓'}
-                    </span>
+                    {#if e.status === 'running'}
+                      <span class="live-dot" aria-label="running"></span>
+                    {:else}
+                      <span class="glyph">✓</span>
+                    {/if}
+                    {#if e.ts}
+                      <span class="ts">{new Date(e.ts).toLocaleTimeString([], { hour12: false })}</span>
+                    {/if}
                     <span class="node">{e.node}</span>
                     <span class="tool">{e.label}</span>
                     {#if e.result}
@@ -177,9 +182,20 @@
   .glyph {
     color: var(--constructive);
   }
-  .glyph.running {
-    color: var(--primary);
-    animation: activity-pulse 1.2s ease-in-out infinite;
+  /* Pulsing dot: a dispatch/tool call is in flight */
+  .live-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 9999px;
+    background: var(--primary);
+    animation: dot-pulse 1.2s ease-in-out infinite;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .ts {
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
   }
   .node {
     color: var(--primary);
@@ -220,9 +236,15 @@
     word-break: break-word;
     color: var(--muted-foreground);
   }
-  @keyframes activity-pulse {
+  @keyframes dot-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
     50% {
-      opacity: 0.25;
+      opacity: 0.35;
+      transform: scale(0.75);
     }
   }
 

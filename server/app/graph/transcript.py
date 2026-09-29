@@ -26,6 +26,8 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.config import get_config
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Content cap per transcript entry — these files are for humans scanning progress
@@ -47,9 +49,20 @@ class SubagentTranscriptMiddleware(AgentMiddleware):
     in build_agent), so the seen-message count is keyed by thread_id.
     """
 
-    def __init__(self, name: str, sandbox_root: str = "/tmp/jubi-sandbox") -> None:
+    def __init__(
+        self,
+        name: str,
+        sandbox_root: str | None = None,
+        return_cap: int = 4000,
+    ) -> None:
         self.agent_name = name
-        self.sandbox_root = sandbox_root
+        # Sandbox root defaults to settings.SANDBOX_ROOT so the jail root is
+        # configured in one place instead of hardcoded per module.
+        self.sandbox_root = sandbox_root or settings.SANDBOX_ROOT
+        # Max chars of the final AI message returned to the orchestrator.
+        # Anthropic's subagent-return guidance is ~1-2k tokens; 4000 chars
+        # ~ 1k tokens — tight enough for a 16k orchestrator window.
+        self.return_cap = return_cap
         self._seen: dict[str, int] = {}
 
     # -- paths ---------------------------------------------------------------
@@ -91,8 +104,50 @@ class SubagentTranscriptMiddleware(AgentMiddleware):
             self._append(self._format(m))
         self._seen[tid] = len(msgs)
 
-    def after_agent(self, state: dict, runtime: Any) -> None:
-        self._append("")  # final AI message was already captured by after_model
+    def after_agent(self, state: dict, runtime: Any) -> dict | None:
+        msgs = state.get("messages") or []
+        last = msgs[-1] if msgs else None
+        if isinstance(last, AIMessage):
+            text = last.text
+            if isinstance(text, str) and len(text) > _MAX_CONTENT:
+                # The progress view caps entries at _MAX_CONTENT; persist the
+                # full final report so the return-path pointer is truthful.
+                self._append(f"\n### [full final report]\n{text}\n")
+        self._append("")
+        return self._cap_return_message(state)
+
+    # -- return-path cap -----------------------------------------------------
+    def _cap_return_message(self, state: dict) -> dict | None:
+        """Bound what flows back to the orchestrator.
+
+        deepagents' task tool returns the subagent's last non-empty AIMessage
+        verbatim as a ToolMessage (it walks back over result["messages"]).
+        Returning a same-ID truncated copy makes langgraph's add_messages
+        reducer REPLACE the message in place, so the orchestrator receives a
+        bounded report while the transcript file keeps the full text.
+        """
+        msgs = state.get("messages") or []
+        if not msgs:
+            return None
+        last = msgs[-1]
+        if not isinstance(last, AIMessage):
+            return None
+        text = last.text
+        if not isinstance(text, str) or len(text) <= self.return_cap:
+            return None
+        return {"messages": [last.model_copy(update={"content": self._truncate(text)})]}
+
+    def _truncate(self, text: str) -> str:
+        """Head+tail truncation — citations usually live at the end."""
+        head = int(self.return_cap * 0.6)
+        tail = self.return_cap - head
+        omitted = len(text) - self.return_cap
+        pointer = f"full transcript: {self._path(self._thread_id())}"
+        return (
+            text[:head]
+            + f"\n\n[… {omitted} chars omitted — {pointer}]\n\n"
+            + text[-tail:]
+        )
 
     # -- formatting ----------------------------------------------------------
     def _format(self, m: Any) -> str:

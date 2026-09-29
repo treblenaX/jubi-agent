@@ -13,11 +13,12 @@ from langchain_ollama import ChatOllama
 from deepagents import create_deep_agent
 from deepagents.middleware.summarization import SummarizationMiddleware
 from deepagents.backends import FilesystemBackend
+from langchain.agents.middleware import ContextEditingMiddleware, ClearToolUsesEdit
 from app.core.config import settings
 from app.core import runtime
 from app.graph.state_doc import StateDocMiddleware
 from app.graph.transcript import SubagentTranscriptMiddleware
-from app.graph.project_context import ProjectContextMiddleware
+from app.graph.project_context import ProjectContextMiddleware, WorkspaceSandboxMiddleware
 
 
 # Define graph state
@@ -53,8 +54,9 @@ def make_model(name=None, temp=settings.OLLAMA_TEMPERATURE,
     )
 
 
-# System prompts for each agent role
-ORCHESTRATOR_PROMPT = """You are the orchestrator agent in a multi-agent development harness.
+# System prompts for each agent role.
+# Sandbox path interpolated from settings — single source of truth.
+ORCHESTRATOR_PROMPT = f"""You are the orchestrator agent in a multi-agent development harness.
 
 Your responsibilities:
 1. Parse user intent from messages
@@ -64,24 +66,34 @@ Your responsibilities:
 5. Manage token budget per session
 
 Safety rules:
-- NEVER write outside /tmp/jubi-sandbox/
+- NEVER write outside {settings.SANDBOX_ROOT}
 - NEVER bypass safety checks
 - ALWAYS cite sources for research findings
 
-Dispatch format: "spawn:{agent_name} {task}"
+Dispatch format: "spawn:{{agent_name}} {{task}}"
 Valid agents: coder, researcher
+
+Delegation rules (each dispatch is a fresh, stateless subagent — it sees ONLY
+your task text, not this conversation):
+- Objective: one sentence describing the desired outcome, unambiguous.
+- Output format: state exactly what to return (e.g. "options with tradeoffs,
+  citations first").
+- Boundaries: what is in/out of scope; preferred sources or paths.
+- Vague dispatches cause duplicated work and gaps — write the full work order.
+- Subagents return a condensed report; full detail is saved to files they
+  reference. Dispatch a follow-up to re-read saved files when needed.
 """
 
-CODER_PROMPT = """You are the coder agent, a senior engineer.
+CODER_PROMPT = f"""You are the coder agent, a senior engineer.
 
 Your responsibilities:
 1. Generate code in memory first
-2. Write ONLY to /tmp/jubi-sandbox/
+2. Write ONLY to {settings.SANDBOX_ROOT}
 3. Run tests within sandbox
 4. Report success/failure with details
 
 Safety rules:
-- NEVER write outside /tmp/jubi-sandbox/
+- NEVER write outside {settings.SANDBOX_ROOT}
 - ALWAYS validate file paths before writing
 - NEVER read/write outside sandbox
 
@@ -93,25 +105,32 @@ Workflow:
 5. Return results
 """
 
-RESEARCHER_PROMPT = """You are the researcher agent, a read-only investigator.
+RESEARCHER_PROMPT = f"""You are the researcher agent, a read-only investigator.
 
 Your responsibilities:
-1. Fetch URLs via web_fetch tool
-2. Extract and summarize content
-3. NEVER write to filesystem
-4. Return structured findings with citations
+1. Research via web_search and fetch_url
+2. Read project files for context (read-only)
+3. Return a condensed report with citations
+
+Context budget (your window is small — spend it deliberately):
+- Budget: 5-8 tool calls per dispatch. Stop when you can answer; do not
+  over-explore or re-fetch pages you have already read.
+- Start wide: short, broad queries first; evaluate what is available; then
+  narrow to specifics.
+- fetch_url saves the full page to a research file and returns only an
+  excerpt — cite the saved path instead of re-fetching.
+
+Final message (this is ALL the orchestrator sees — your transcript is NOT
+forwarded):
+- Keep it under 4000 characters. Citations FIRST, then findings, then gaps.
+- Structure: ## Sources / ## Findings / ## Gaps
+- Reference saved research file paths for follow-up reads.
 
 Safety rules:
-- NEVER write to any filesystem
 - NEVER modify project code
-- ONLY use read-only tools (web_search, fetch_url)
+- Read-only on project files; fetch_url auto-persists fetched pages to
+  .jubi/research/ inside the project workspace (or the thread sandbox)
 - ALWAYS cite all sources in results
-
-Workflow:
-1. Parse research query
-2. Fetch relevant URLs via web_search or fetch_url
-3. Extract and summarize content
-4. Return structured findings with citations
 """
 
 
@@ -148,8 +167,16 @@ def build_agent(checkpointer=None):
                   list_project, run_shell, run_tests],
         "model": shared,  # or make_model("qwen2.5-coder:14b")
         # Transcript capture: client polls /files/transcript/<tid>/coder while
-        # the dispatch runs (see app/graph/transcript.py)
-        "middleware": [SubagentTranscriptMiddleware("coder"), ProjectContextMiddleware()],
+        # the dispatch runs (see app/graph/transcript.py).
+        # ContextEditingMiddleware: tool-result clearing (Anthropic's
+        # "lightest-touch compaction") — past ~8k tokens, older tool outputs
+        # collapse to a placeholder; the last 3 stay for immediate reference.
+        "middleware": [
+            SubagentTranscriptMiddleware("coder"),
+            ContextEditingMiddleware(edits=[ClearToolUsesEdit(trigger=8000, keep=3)]),
+            ProjectContextMiddleware(),
+            WorkspaceSandboxMiddleware(),
+        ],
     }
 
     researcher = {
@@ -160,7 +187,12 @@ def build_agent(checkpointer=None):
         "system_prompt": RESEARCHER_PROMPT,
         "tools": [web_search, fetch_url, read_project_file, list_project],
         "model": shared,  # or make_model("qwen3:8b", temp=0.3)
-        "middleware": [SubagentTranscriptMiddleware("researcher"), ProjectContextMiddleware()],
+        "middleware": [
+            SubagentTranscriptMiddleware("researcher"),
+            ContextEditingMiddleware(edits=[ClearToolUsesEdit(trigger=8000, keep=3)]),
+            ProjectContextMiddleware(),
+            WorkspaceSandboxMiddleware(),
+        ],
     }
 
     # Compaction middleware (SPEC-02). Two strategies behind one trigger/keep:
@@ -174,8 +206,9 @@ def build_agent(checkpointer=None):
     rs = runtime.get()
     backend = FilesystemBackend(root_dir=settings.SANDBOX_ROOT)
     # Project context (title + description) pinned into the system prompt when
-    # the thread belongs to a project; compaction middleware per settings.
-    middleware = (ProjectContextMiddleware(),)
+    # the thread belongs to a project; workspace jail enforced on tool calls;
+    # compaction middleware per settings.
+    middleware = (ProjectContextMiddleware(), WorkspaceSandboxMiddleware())
     if rs["compaction_enabled"]:
         trigger_tokens = int(rs["compaction_trigger_fraction"] * rs["num_ctx"])
         if rs.get("compaction_mode", "state_doc") == "summary":

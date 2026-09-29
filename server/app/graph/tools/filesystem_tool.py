@@ -2,8 +2,8 @@
 Filesystem tools for coder agent.
 
 SAFETY INVARIANTS:
-- Coder MUST write only to /tmp/jubi-sandbox/
-- Coder MUST NOT read/write outside sandbox
+- Coder MUST write only to the configured sandbox root (settings.SANDBOX_ROOT)
+- Coder MUST NOT read/write outside sandbox or the active project workspace
 - All paths must be validated before operations
 """
 
@@ -12,9 +12,13 @@ import re
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
+from app.core.config import settings
 
-# Sandbox root - coder can ONLY write here
-SANDBOX_ROOT = "/tmp/jubi-sandbox"
+
+# Sandbox root - coder can ONLY write here. Bound to settings.SANDBOX_ROOT
+# (single source of truth; was hardcoded "/tmp/jubi-sandbox"). Kept as a Path
+# so `SANDBOX_ROOT / name` joins correctly.
+SANDBOX_ROOT = Path(settings.SANDBOX_ROOT)
 
 
 def _validate_sandbox_path(path: str) -> bool:
@@ -49,12 +53,13 @@ def _validate_sandbox_path(path: str) -> bool:
         return False
 
 
-def read_project_file(path: str) -> Optional[str]:
+def read_project_file(path: str, workspace_path: Optional[str] = None) -> Optional[str]:
     """
     Read a file from the project or sandbox.
     
     Args:
         path: Path to the file
+        workspace_path: Optional workspace path to restrict tool actions
         
     Returns:
         File contents as string, or None if not found
@@ -63,15 +68,28 @@ def read_project_file(path: str) -> Optional[str]:
         # For read operations, allow reading from workspace too
         p = Path(path)
         
-        # Try sandbox first
-        sandbox_path = SANDBOX_ROOT / p.name
-        if sandbox_path.exists():
-            return sandbox_path.read_text(encoding="utf-8")
-        
-        # Then try workspace
-        workspace_path = Path.cwd() / p.name
-        if workspace_path.exists():
-            return workspace_path.read_text(encoding="utf-8")
+        # If workspace_path is specified, resolve it and use that as the base
+        if workspace_path:
+            base_path = Path(workspace_path).resolve()
+            # Relative paths resolve against the workspace; absolute paths must
+            # already be inside it (path jail).
+            candidate = p if p.is_absolute() else base_path / p
+            resolved = candidate.resolve()
+            if not str(resolved).startswith(str(base_path)):
+                return None  # Not in workspace
+            if resolved.is_file():
+                return resolved.read_text(encoding="utf-8")
+            return None  # Not found in workspace
+        else:
+            # Default behavior: try sandbox then workspace
+            sandbox_path = SANDBOX_ROOT / p.name
+            if sandbox_path.exists():
+                return sandbox_path.read_text(encoding="utf-8")
+            
+            # Then try workspace
+            workspace_path_default = Path.cwd() / p.name
+            if workspace_path_default.exists():
+                return workspace_path_default.read_text(encoding="utf-8")
         
         return None
         
@@ -79,15 +97,16 @@ def read_project_file(path: str) -> Optional[str]:
         return f"Error reading file: {e}"
 
 
-def write_project_file(path: str, content: str) -> Dict[str, Any]:
+def write_project_file(path: str, content: str, workspace_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Write a file to the sandbox directory.
 
-    SAFETY: Only writes to /tmp/jubi-sandbox/
+    SAFETY: Only writes to the sandbox root or specified workspace_path
 
     Args:
         path: Path relative to sandbox (e.g., "hello.py")
         content: File contents
+        workspace_path: Optional workspace path to restrict tool actions
 
     Returns:
         Dict with status and message
@@ -96,23 +115,49 @@ def write_project_file(path: str, content: str) -> Dict[str, Any]:
         # Create sandbox directory if needed (before validation)
         os.makedirs(SANDBOX_ROOT, exist_ok=True)
 
-        # Validate path is within sandbox
-        if not _validate_sandbox_path(path):
+        # If workspace_path is specified, use that as the base
+        if workspace_path:
+            base_path = Path(workspace_path).resolve()
+
+            # Relative paths resolve against the workspace; absolute paths must
+            # already be inside it (path jail).
+            p = Path(path)
+            candidate = p if p.is_absolute() else base_path / p
+            target = candidate.resolve()
+            if not str(target).startswith(str(base_path)):
+                return {
+                    "status": "error",
+                    "message": f"Security violation: Path must be under {workspace_path}"
+                }
+            
+            # Write to workspace
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            
             return {
-                "status": "error",
-                "message": f"Security violation: Path must be under {SANDBOX_ROOT}"
+                "status": "success",
+                "path": str(target),
+                "bytes_written": len(content.encode("utf-8"))
             }
+        else:
+            # Default behavior: only write to sandbox
+            # Validate path is within sandbox
+            if not _validate_sandbox_path(path):
+                return {
+                    "status": "error",
+                    "message": f"Security violation: Path must be under {SANDBOX_ROOT}"
+                }
 
-        # Write to sandbox
-        sandbox_path = Path(SANDBOX_ROOT) / path
-        sandbox_path.parent.mkdir(parents=True, exist_ok=True)
-        sandbox_path.write_text(content, encoding="utf-8")
+            # Write to sandbox
+            sandbox_path = Path(SANDBOX_ROOT) / path
+            sandbox_path.parent.mkdir(parents=True, exist_ok=True)
+            sandbox_path.write_text(content, encoding="utf-8")
 
-        return {
-            "status": "success",
-            "path": str(sandbox_path),
-            "bytes_written": len(content.encode("utf-8"))
-        }
+            return {
+                "status": "success",
+                "path": str(sandbox_path),
+                "bytes_written": len(content.encode("utf-8"))
+            }
 
     except Exception as e:
         return {
@@ -121,7 +166,7 @@ def write_project_file(path: str, content: str) -> Dict[str, Any]:
         }
 
 
-def edit_project_file(path: str, old_text: str, new_text: str) -> Dict[str, Any]:
+def edit_project_file(path: str, old_text: str, new_text: str, workspace_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Edit a file by replacing text.
     
@@ -129,35 +174,49 @@ def edit_project_file(path: str, old_text: str, new_text: str) -> Dict[str, Any]
         path: Path relative to sandbox
         old_text: Text to replace
         new_text: Replacement text
+        workspace_path: Optional workspace path to restrict tool actions
         
     Returns:
         Dict with status and message
     """
     try:
-        if not _validate_sandbox_path(path):
-            return {
-                "status": "error",
-                "message": f"Security violation: Path must be under {SANDBOX_ROOT}"
-            }
+        # Determine the actual file path (relative paths resolve against the
+        # workspace or sandbox; absolute paths must already be inside it — path jail)
+        if workspace_path:
+            base_path = Path(workspace_path).resolve()
+            p = Path(path)
+            candidate = p if p.is_absolute() else base_path / p
+            target = candidate.resolve()
+            if not str(target).startswith(str(base_path)):
+                return {
+                    "status": "error",
+                    "message": f"Security violation: Path must be under {workspace_path}"
+                }
+        else:
+            # Default behavior: validate sandbox path
+            if not _validate_sandbox_path(path):
+                return {
+                    "status": "error",
+                    "message": f"Security violation: Path must be under {SANDBOX_ROOT}"
+                }
+            target = (Path(SANDBOX_ROOT) / path).resolve()
         
-        sandbox_path = Path(SANDBOX_ROOT) / path
-        
-        if not sandbox_path.exists():
+        if not target.exists():
             return {
                 "status": "error",
                 "message": f"File not found: {path}"
             }
         
-        content = sandbox_path.read_text(encoding="utf-8")
+        content = target.read_text(encoding="utf-8")
         
         # Replace text (only first occurrence by default)
         if old_text in content:
             new_content = content.replace(old_text, new_text, 1)
-            sandbox_path.write_text(new_content, encoding="utf-8")
+            target.write_text(new_content, encoding="utf-8")
             
             return {
                 "status": "success",
-                "path": str(sandbox_path),
+                "path": str(target),
                 "replacements": 1
             }
         else:
@@ -173,31 +232,32 @@ def edit_project_file(path: str, old_text: str, new_text: str) -> Dict[str, Any]
         }
 
 
-def list_project(glob_pattern: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_project(glob_pattern: Optional[str] = None, workspace_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    List files in the sandbox directory.
+    List files in the project workspace (or the sandbox when no workspace).
     
     Args:
         glob_pattern: Optional glob filter (e.g., "*.py")
+        workspace_path: Optional workspace path to restrict tool actions
         
     Returns:
         List of file info dicts
     """
     try:
-        sandbox_path = Path(SANDBOX_ROOT)
+        root = Path(workspace_path).resolve() if workspace_path else Path(SANDBOX_ROOT)
         
-        if not sandbox_path.exists():
+        if not root.exists():
             return []
         
         files = []
-        for item in sandbox_path.iterdir():
+        for item in root.iterdir():
             if glob_pattern:
                 if not re.search(glob_pattern, item.name):
                     continue
             
             info = {
                 "name": item.name,
-                "path": str(item.relative_to(sandbox_path)),
+                "path": str(item.relative_to(root)),
                 "size": item.stat().st_size if item.is_file() else 0,
                 "is_file": item.is_file(),
                 "modified": item.stat().st_mtime if item.is_file() else None
@@ -216,15 +276,16 @@ def list_project(glob_pattern: Optional[str] = None) -> List[Dict[str, Any]]:
         }
 
 
-def run_shell(command: str, working_dir: Optional[str] = None) -> Dict[str, Any]:
+def run_shell(command: str, working_dir: Optional[str] = None, workspace_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Run a shell command in the sandbox.
     
-    SAFETY: Only runs commands in /tmp/jubi-sandbox/
+    SAFETY: Only runs commands in the sandbox root or specified workspace_path
     
     Args:
         command: Shell command to execute
         working_dir: Working directory (defaults to sandbox root)
+        workspace_path: Optional workspace path to restrict tool actions
         
     Returns:
         Dict with status, stdout, stderr
@@ -234,11 +295,19 @@ def run_shell(command: str, working_dir: Optional[str] = None) -> Dict[str, Any]
         if not working_dir:
             working_dir = SANDBOX_ROOT
         
-        # Validate working dir is within sandbox
-        if not _validate_sandbox_path(working_dir):
+        # If workspace_path is specified, use that as the base
+        if workspace_path:
+            working_dir = workspace_path
+        
+        # Validate working dir is within the sandbox or the active workspace
+        sandbox = Path(SANDBOX_ROOT).resolve()
+        wd = Path(working_dir).resolve()
+        in_sandbox = str(wd).startswith(str(sandbox))
+        in_workspace = bool(workspace_path) and str(wd).startswith(str(Path(workspace_path).resolve()))
+        if not (in_sandbox or in_workspace):
             return {
                 "status": "error",
-                "message": f"Security violation: Working directory must be under {SANDBOX_ROOT}"
+                "message": f"Security violation: Working directory must be under {SANDBOX_ROOT} or the project workspace"
             }
         
         import subprocess
@@ -276,12 +345,13 @@ def run_shell(command: str, working_dir: Optional[str] = None) -> Dict[str, Any]
         }
 
 
-def run_tests(tests: List[str]) -> Dict[str, Any]:
+def run_tests(tests: List[str], workspace_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Run tests from the sandbox.
     
     Args:
         tests: List of test file paths or patterns
+        workspace_path: Optional workspace path to restrict tool actions
         
     Returns:
         Dict with test results
@@ -293,8 +363,11 @@ def run_tests(tests: List[str]) -> Dict[str, Any]:
                 "message": "No tests specified"
             }
         
-        # Run pytest on the first test (or all if multiple)
-        test_path = Path(SANDBOX_ROOT) / tests[0]
+        # If workspace_path is specified, use that as the base
+        if workspace_path:
+            test_path = Path(workspace_path) / tests[0]
+        else:
+            test_path = Path(SANDBOX_ROOT) / tests[0]
         
         if not test_path.exists():
             return {
@@ -304,12 +377,15 @@ def run_tests(tests: List[str]) -> Dict[str, Any]:
         
         import subprocess
         
+        # Use workspace_path as cwd if specified, otherwise sandbox root
+        cwd = workspace_path if workspace_path else SANDBOX_ROOT
+        
         process = subprocess.Popen(
             f"python -m pytest {tests[0]} -v",
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=SANDBOX_ROOT,
+            cwd=cwd,
             text=True
         )
         

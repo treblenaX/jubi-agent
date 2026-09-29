@@ -17,6 +17,8 @@ import shutil
 import time
 import uuid
 
+from app.core.config import settings
+
 router = APIRouter()
 
 # Path-segment whitelist for the transcript endpoint (no traversal)
@@ -33,8 +35,8 @@ def get_sandbox_path(thread_id: str) -> str:
     Returns:
         Full path to thread's sandbox directory
     """
-    # Sandbox root (configured in settings)
-    sandbox_root = "/tmp/jubi-sandbox/"
+    # Sandbox root — single source of truth in settings
+    sandbox_root = settings.SANDBOX_ROOT
     
     # Create thread-specific subdirectory
     thread_dir = os.path.join(sandbox_root, str(thread_id))
@@ -254,13 +256,13 @@ async def get_transcript(thread_id: str, subagent: str):
     """
     Fetch a subagent's latest run transcript.
 
-    Serves /tmp/jubi-sandbox/<thread_id>/transcripts/<subagent>-latest.md,
+    Serves <SANDBOX_ROOT>/<thread_id>/transcripts/<subagent>-latest.md,
     which grows while the dispatch runs — the client polls this endpoint to
     render a near-live "subagent chat" panel under the dispatch activity line.
     """
     if not _NAME_RE.fullmatch(thread_id) or not _NAME_RE.fullmatch(subagent):
         raise HTTPException(status_code=400, detail="Invalid thread or agent name")
-    path = os.path.join("/tmp/jubi-sandbox", thread_id, "transcripts", f"{subagent}-latest.md")
+    path = os.path.join(settings.SANDBOX_ROOT, thread_id, "transcripts", f"{subagent}-latest.md")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="No transcript yet")
     return FileResponse(path, media_type="text/markdown; charset=utf-8")
@@ -277,7 +279,7 @@ async def cleanup_sandbox(thread_id: Optional[str] = None):
     Returns:
         Cleanup summary
     """
-    sandbox_root = "/tmp/jubi-sandbox/"
+    sandbox_root = settings.SANDBOX_ROOT
     
     try:
         if thread_id is None:

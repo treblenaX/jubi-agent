@@ -3,11 +3,11 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { HugeiconsIcon } from "@hugeicons/svelte";
-  import { PlusSignIcon, Cancel01Icon, SettingsIcon, NetworkIcon, Wrench01Icon, FolderIcon } from "@hugeicons/core-free-icons";
+  import { PlusSignIcon, Cancel01Icon, SettingsIcon, NetworkIcon, Wrench01Icon, FolderIcon, FolderOpenIcon, ArrowRight01Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
   import { API_URL } from "$lib/constants";
-  import { sessions } from "$lib/stores/sessions.svelte";
+  import { sessions, type SessionInfo } from "$lib/stores/sessions.svelte";
   import { projects } from "$lib/stores/projects.svelte";
-  import { deleteThread } from "$lib/api/chat";
+  import { deleteThread, createThread } from "$lib/api/chat";
   import { deleteProject } from "$lib/api/projects";
   import SettingsPanel from "$lib/components/settings/SettingsPanel.svelte";
 
@@ -70,6 +70,39 @@
       if (projectId === activeProjectId) goto('/');
     } catch (err) {
       console.error('Failed to delete project:', err);
+    }
+  }
+
+  // File tree: per-project expand/collapse (folder rows toggle, chat rows nest)
+  let expanded = $state<Record<string, boolean>>({});
+  // Auto-expand the folder holding the active chat
+  $effect(() => {
+    const pid = sessions.list.find((s) => s.thread_id === activeThreadId)?.project_id;
+    if (pid) expanded[pid] = true;
+  });
+
+  // Chats not in any (known) project sit at the tree root
+  const unfiledSessions = $derived.by(() => {
+    const known = new Set(projects.list.map((p) => p.project_id));
+    return sessions.list.filter((s) => !s.project_id || !known.has(s.project_id));
+  });
+  const chatsByProject = $derived.by(() => {
+    const map: Record<string, SessionInfo[]> = {};
+    for (const s of sessions.list) {
+      if (s.project_id) (map[s.project_id] ??= []).push(s);
+    }
+    return map;
+  });
+
+  async function handleNewChatInProject(event: MouseEvent, projectId: string) {
+    event.stopPropagation();
+    try {
+      const tid = await createThread(projectId);
+      expanded[projectId] = true;
+      await sessions.refresh();
+      await goto(`/?t=${tid}`);
+    } catch (err) {
+      console.error('Failed to create chat in project:', err);
     }
   }
 
@@ -184,10 +217,9 @@
       </button>
     </div>
 
-    <!-- Session + Project Lists -->
+    <!-- Session + Project File Tree -->
     <nav class="flex-1 space-y-1 px-4 py-4 overflow-y-auto">
-      <div class="section-label">Chats</div>
-      {#each sessions.list as session (session.thread_id)}
+      {#snippet chatRow(session: SessionInfo)}
         <div
           class={`group relative flex items-center rounded-md text-sm transition-colors ${
             session.thread_id === activeThreadId
@@ -210,12 +242,18 @@
             <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.5} />
           </button>
         </div>
+      {/snippet}
+
+      <div class="section-label">Chats</div>
+      {#each unfiledSessions as session (session.thread_id)}
+        {@render chatRow(session)}
       {:else}
         <p class="px-3 py-2 text-xs text-muted-foreground">No sessions yet</p>
       {/each}
 
       <div class="section-label pt-3">Projects</div>
       {#each projects.list as project (project.project_id)}
+        {@const isOpen = expanded[project.project_id] ?? false}
         <div
           class={`group relative flex items-center rounded-md text-sm transition-colors ${
             project.project_id === activeProjectId
@@ -224,12 +262,39 @@
           }`}
         >
           <button
-            class="flex flex-1 items-center gap-2 truncate px-3 py-2 text-left font-medium"
+            class="flex shrink-0 items-center rounded p-1"
+            aria-label={`${isOpen ? 'Collapse' : 'Expand'} project: ${project.title}`}
+            aria-expanded={isOpen}
+            onclick={(e) => { e.stopPropagation(); expanded[project.project_id] = !isOpen; }}
+          >
+            <HugeiconsIcon
+              icon={isOpen ? ArrowDown01Icon : ArrowRight01Icon}
+              size={12}
+              strokeWidth={1.5}
+            />
+          </button>
+          <button
+            class="flex flex-1 items-center gap-2 truncate py-2 pl-1 pr-3 text-left font-medium"
             title={project.description || project.title}
             onclick={() => goto(`/projects/${project.project_id}`)}
           >
-            <HugeiconsIcon icon={FolderIcon} size={14} strokeWidth={1.5} class="shrink-0 opacity-70" />
+            <HugeiconsIcon
+              icon={isOpen ? FolderOpenIcon : FolderIcon}
+              size={14}
+              strokeWidth={1.5}
+              class="shrink-0 opacity-70"
+            />
             <span class="truncate">{project.title}</span>
+            {#if project.thread_count}
+              <span class="shrink-0 text-xs text-muted-foreground">{project.thread_count}</span>
+            {/if}
+          </button>
+          <button
+            class="absolute right-7 rounded p-1 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+            aria-label={`New chat in project: ${project.title}`}
+            onclick={(e) => handleNewChatInProject(e, project.project_id)}
+          >
+            <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.5} />
           </button>
           <button
             class="absolute right-1.5 rounded p-1 opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
@@ -239,6 +304,15 @@
             <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.5} />
           </button>
         </div>
+        {#if isOpen}
+          <div class="ml-4 border-l border-border pl-1">
+            {#each chatsByProject[project.project_id] ?? [] as session (session.thread_id)}
+              {@render chatRow(session)}
+            {:else}
+              <p class="px-3 py-1.5 text-xs text-muted-foreground">No chats yet — hover the folder and hit +</p>
+            {/each}
+          </div>
+        {/if}
       {:else}
         <p class="px-3 py-2 text-xs text-muted-foreground">No projects yet</p>
       {/each}
